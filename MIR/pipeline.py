@@ -41,6 +41,8 @@ def _reset_context() -> None:
     globals.ACTIVE_SOURCES.clear()
     globals.VARIANT_STACK.clear()
     globals.SOURCE_PROVIDER = None
+    globals.INSERTS.clear()
+    globals.BEFORE.clear()
 
 
 def parse_source(path: str | Path):
@@ -84,7 +86,10 @@ def compile_pack(path: str | Path) -> CompiledRuleSet:
     with PackReader(package_path) as package:
         compiled_database = package.compiled_database()
         if compiled_database is not None:
-            return load_database(compiled_database)
+            return load_database(
+                compiled_database,
+                expected_fingerprint=package.manifest.content_sha256,
+            )
         previous_sources = dict(compiler_module.SOURCE_TEXTS)
         compiler_module.SOURCE_TEXTS.update(
             {
@@ -117,10 +122,10 @@ def compile_definition(path: str | Path) -> CompiledRuleSet:
 
 def compile_project(path: str | Path) -> Compilation:
     program = compile_source(path)
-    if globals.CONFIG is None:
+    if program.context.config is None:
         raise RuntimeError("El proyecto requiere @config para crear una salida por secciones.")
     source_path = Path(path).expanduser().resolve()
-    return Compilation(source_path, program, AssemblyImage(globals.CONFIG))
+    return Compilation(source_path, program, AssemblyImage(program.context.config))
 
 
 def execute_rule(

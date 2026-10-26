@@ -1,0 +1,96 @@
+; Minimal executable ELF64 target for Linux x86-64.
+
+@config:
+.sectiondef ".section"
+.make section "text"
+.make section "data"
+.make section "bss"
+.sectionend ":"
+.entrysection "text"
+.entrylabel "_start"
+.comment ";"
+.labelend ":"
+.datasection "data"
+.defaultsection "text"
+.sectionflags "text" "rx"
+.sectionflags "data" "rw"
+.sectionflags "bss" "rw"
+.sectionvaddr "text" 4194304
+.wordsize 64
+.addresssize 64
+.endianess "little"
+.casesensitive true
+.symbolprefix "_"
+.localprefix "."
+.undefinedsymbols "error"
+.duplicateSymbols "error"
+.strict true
+.allowemptysections false
+.bitorder "msb"
+@configend
+
+@linker:
+.ext ".asm"
+.name "main"
+.searching ""
+@linkerend
+
+; ELF64 header (64 bytes) followed by one PT_LOAD (56 bytes).
+; Dynamic fields are patched by @before after the MIR has emitted code.
+@insert:
+.section "text"
+.bytes "7f454c46020101000000000000000000"
+.bytes "02003e00010000000000000000000000"
+.bytes "40000000000000000000000000000000"
+.bytes "00000000400038000100000000000000"
+.bytes "01000000050000000000000000000000"
+.bytes "00004000000000000000400000000000"
+.bytes "00000000000000000000000000000000"
+.bytes "0010000000000000"
+@end
+
+@before:
+; e_entry = 0x400000 + physical offset of _start.
+.rplc 24, 8, #:calc(4194304 + #:qlsize(0, "_start"))
+; p_filesz = bytes from file start through the end of text.
+.rplc 96, 8, #:qssize(0, "text")
+; p_memsz = virtual end minus the segment virtual base.
+.rplc 104, 8, #:calc(#:qvssize(0, "text") - 4194304)
+@end
+
+@table registers
+| name | modrm |
+_
+| rax | 192 |
+_
+| rcx | 193 |
+_
+| rdx | 194 |
+_
+| rbx | 195 |
+_
+| rsp | 196 |
+_
+| rbp | 197 |
+_
+| rsi | 198 |
+_
+| rdi | 199 |
+@end
+
+@rule _start:
+-> IDENT
+
+@rule mov:
+-> IDENT
+-> $registers.name, IDENT
+-> COMMA
+-> emitbits 72 8
+-> emitbits 199 8
+-> emitbits $registers.modrm 8
+-> fits 32
+
+@rule syscall:
+-> IDENT
+-> emitbits 15 8
+-> emitbits 5 8

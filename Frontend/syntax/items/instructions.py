@@ -8,6 +8,8 @@ from typing import Any
 from gram import combinators as cmb
 from gram import lexer
 
+from ..keywords import INSTRUCTION_OPCODES
+
 
 @dataclass(frozen=True)
 class RawInstruction:
@@ -28,26 +30,7 @@ class RawInstruction:
 class InstructionConsumer(cmb.Combinator):
     """Consume one complete instruction, stopping only at line boundaries."""
 
-    _KEYWORDS = {
-        "put": "put",
-        "ebit": "ebit",
-        "emmit": "emmit",
-        "KW": "kw",
-        "JMP": "jmp",
-        "save": "save",
-        "load": "load",
-        "reserve": "reserve",
-        "ldres": "ldres",
-        "dlres": "dlres",
-        "gtres": "gtres",
-        "jmpif": "jmpif",
-        "break": "break",
-        "error": "error",
-        "CALL": "call",
-        "emitfr": "emitfr",
-        "padding": "padding",
-        "alignement": "alignement",
-    }
+    _KEYWORDS = INSTRUCTION_OPCODES
 
     @staticmethod
     def _consume_line(parser: Any) -> tuple[lexer.TokenType, ...] | None:
@@ -101,7 +84,7 @@ class InstructionConsumer(cmb.Combinator):
                     parser.restore(checkpoint)
                     return None
                 opcode = "consumer"
-        elif body[0].token in {lexer.Token.NUMBER, lexer.Token.IDENT}:
+        elif body[0].token in {lexer.Token.NUMBER, lexer.Token.DECIMAL, lexer.Token.IDENT}:
             opcode = "consumer"
         else:
             parser.restore(checkpoint)

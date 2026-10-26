@@ -66,10 +66,13 @@ def _string_value(node: Any) -> str:
 
 
 def _literal_values(node: Any, kind: str) -> tuple[Any, ...]:
+    kinds = {kind}
+    if kind == "NUMBER":
+        kinds.add("DECIMAL")
     return tuple(
         _token_value(child)
         for child in _walk(node)
-        if _token_kind(child) == kind
+        if _token_kind(child) in kinds
     )
 
 
@@ -102,7 +105,7 @@ def visit(node: Any) -> None:
                 raise RuntimeError(f"La sección '{section}' ya fue declarada.")
             sections.append(section)
             continue
-        if item_name in {"SECTIONFLAGS", "SECTIONALIGN"}:
+        if item_name in {"SECTIONFLAGS", "SECTIONALIGN", "SECTIONVADDR"}:
             continue
 
         field = {
@@ -170,6 +173,7 @@ def visit(node: Any) -> None:
 
     sectionflags: dict[str, str] = {}
     sectionalign: dict[str, int] = {}
+    sectionvaddr: dict[str, int] = {}
     for item in _config_items(node):
         item_name = getattr(item, "name", None)
         if item_name == "SECTIONFLAGS":
@@ -195,6 +199,19 @@ def visit(node: Any) -> None:
             if section in sectionalign:
                 raise RuntimeError(f"sectionalign ya fue declarada para '{section}'.")
             sectionalign[section] = alignment
+        elif item_name == "SECTIONVADDR":
+            strings = _literal_values(item, "STRING")
+            address = _one_literal(item, "NUMBER", "sectionvaddr")
+            if len(strings) != 1 or not strings[0]:
+                raise RuntimeError("sectionvaddr requiere una sección no vacía.")
+            if isinstance(address, bool) or not isinstance(address, int) or address < 0:
+                raise RuntimeError("sectionvaddr debe ser un entero no negativo.")
+            section = strings[0]
+            if section not in sections:
+                raise RuntimeError(f"sectionvaddr referencia sección desconocida '{section}'.")
+            if section in sectionvaddr:
+                raise RuntimeError(f"sectionvaddr ya fue declarada para '{section}'.")
+            sectionvaddr[section] = address
 
     endianness = values["endianness"].lower()
     if endianness not in {"little", "big"}:
@@ -230,6 +247,7 @@ def visit(node: Any) -> None:
         strict=values["strict"],
         allowemptysections=values["allowemptysections"],
         bitorder=bitorder,
+        sectionvaddr=sectionvaddr,
     )
 
 

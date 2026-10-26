@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -15,12 +17,41 @@ from .function_context import RIFFunctionContext
 from .functions import FunctionModule, load_function_file, load_function_source
 from .instructions import CompiledRuleSet
 from .output import AssemblyImage
+from .artifacts import apply_before, apply_inserts
 from .pipeline import compile_definition
 from .runtime import ExecutionResult, RIFMachine
 
 
+MAX_MIR_SOURCE_BYTES = 64 << 20
+MAX_MIR_TOKENS = 4_000_000
+
+
 class MIRInputError(ValueError):
     """An external MIR input or linker-extension error."""
+
+
+def _write_binary_atomic(
+    output: str | Path,
+    data: bytes,
+    *,
+    protected: tuple[Path, ...],
+) -> Path:
+    target = Path(output).expanduser().resolve()
+    if any(target == item for item in protected):
+        raise MIRInputError(f"La salida no puede sobrescribir un archivo de entrada: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        temporary.write_bytes(data)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return target
 
 
 @dataclass(frozen=True)
@@ -30,6 +61,7 @@ class PreparedTarget:
     program: CompiledRuleSet
     target_path: Path | None
     function_module: FunctionModule | None = None
+    assets: dict[str, bytes] = field(default_factory=dict)
 
 
 @dataclass
@@ -45,12 +77,20 @@ class MIRCompilation:
     target_path: Path | None = None
     mir_path: Path | None = None
 
+    @property
+    def section_binary(self) -> bytes:
+        """Return only the finalized bytes of the selected section."""
+
+        return self.image.final_binary(self.section)
+
 
 def tokenize_mir(source: str, name: str = "<memory>") -> tuple[lexer.TokenType, ...]:
     """Tokenize MIR once for callers that do not already have tokens."""
 
     if not isinstance(source, str):
         raise TypeError("El MIR fuente debe ser str.")
+    if len(source.encode("utf-8")) > MAX_MIR_SOURCE_BYTES:
+        raise MIRInputError("El MIR excede el límite de 64 MiB.")
     RIF_LANG_SESSION.load()
     return tuple(RIF_LANG_SESSION.tokenize(source, name))
 
@@ -63,6 +103,7 @@ def prepare_target(path: str | Path) -> PreparedTarget:
         raise MIRInputError("La definición RIF debe terminar en .rif o .pack.")
     program = compile_definition(target_path)
     function_module: FunctionModule | None = None
+    assets: dict[str, bytes] = {}
     if target_path.suffix.lower() == ".rif":
         function_path = target_path.parent / "funcs.py"
         if function_path.is_file():
@@ -75,7 +116,8 @@ def prepare_target(path: str | Path) -> PreparedTarget:
                     function_source,
                     package.virtual_function_path(),
                 )
-    return PreparedTarget(program, target_path, function_module)
+            assets = package.assets()
+    return PreparedTarget(program, target_path, function_module, assets)
 
 
 def _prepare_target(
@@ -88,10 +130,10 @@ def _prepare_target(
     return prepare_target(target)
 
 
-def _require_target_config() -> globals.ConfigData:
-    if globals.CONFIG is None:
+def _require_target_config(program: CompiledRuleSet) -> globals.ConfigData:
+    if program.context.config is None:
         raise MIRInputError("La definición RIF requiere un bloque @config.")
-    return globals.CONFIG
+    return program.context.config
 
 
 def _split_lines(
@@ -133,7 +175,7 @@ def _resolve_rule_name(
         )
     if value in program.rules:
         return value
-    config = globals.CONFIG
+    config = program.context.config
     if config is not None and not config.casesensitive:
         folded = value.casefold()
         matches = [name for name in program.rules if name.casefold() == folded]
@@ -159,7 +201,7 @@ def compile_mir_tokens(
 
     prepared = _prepare_target(target)
     program = prepared.program
-    config = _require_target_config()
+    config = _require_target_config(program)
     selected_section = section or config.entrysection
     if selected_section not in config.sections:
         raise MIRInputError(f"La sección MIR '{selected_section}' no existe en @config.")
@@ -181,7 +223,21 @@ def compile_mir_tokens(
         mir_path=Path(mir_path).expanduser().resolve() if mir_path else None,
     )
     machine.bind_function_context(context)
-    token_stream = tuple(tokens)
+    apply_inserts(
+        image,
+        program.inserts,
+        function_module=prepared.function_module,
+        context=context,
+        assets=prepared.assets,
+    )
+    collected: list[lexer.TokenType] = []
+    for index, token in enumerate(tokens):
+        if index >= MAX_MIR_TOKENS:
+            raise MIRInputError(
+                f"El MIR excede el límite de {MAX_MIR_TOKENS} tokens."
+            )
+        collected.append(token)
+    token_stream = tuple(collected)
     if rule_name is not None:
         lines = ((
             tuple(
@@ -209,12 +265,20 @@ def compile_mir_tokens(
             )
         executions.append(result)
 
+    apply_before(
+        image,
+        machine,
+        program.before,
+        function_module=prepared.function_module,
+        context=context,
+    )
+
     return MIRCompilation(
         program=program,
         image=image,
         executions=tuple(executions),
         section=selected_section,
-        binary=image.binary(selected_section),
+        binary=image.file_bytes(),
         context=context,
         target_path=prepared.target_path,
         mir_path=context.mir_path,
@@ -253,11 +317,13 @@ def compile_mir_file(
     input_path = Path(mir_path).expanduser().resolve()
     if not input_path.is_file():
         raise FileNotFoundError(f"Archivo MIR no encontrado: {input_path}")
+    if input_path.stat().st_size > MAX_MIR_SOURCE_BYTES:
+        raise MIRInputError("El archivo MIR excede el límite de 64 MiB.")
     prepared = _prepare_target(target)
-    _config = _require_target_config()
-    if globals.LINKER is None:
+    _config = _require_target_config(prepared.program)
+    if prepared.program.context.linker is None:
         raise MIRInputError("La entrada por archivo requiere un bloque @linker.")
-    linker = globals.LINKER
+    linker = prepared.program.context.linker
     expected = linker.ext
     if not expected.startswith("."):
         expected = "." + expected
@@ -276,7 +342,10 @@ def compile_mir_file(
     )
     result.mir_path = input_path
     if output is not None:
-        Path(output).expanduser().resolve().write_bytes(result.binary)
+        protected = (input_path,) + (
+            (prepared.target_path,) if prepared.target_path is not None else ()
+        )
+        _write_binary_atomic(output, result.binary, protected=protected)
     return result
 
 

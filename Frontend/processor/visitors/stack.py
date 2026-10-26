@@ -15,7 +15,7 @@ def _stack_size(node: Any) -> int:
         token_name = getattr(getattr(token, "token", None), "name", None)
         if token_name == "MINUS":
             sign = -1
-        if token_name == "NUMBER":
+        if token_name in {"NUMBER", "DECIMAL"}:
             value = token.value
             if isinstance(value, bool) or not isinstance(value, int):
                 raise RuntimeError("El tamaño de @stack debe ser un entero.")

@@ -10,12 +10,19 @@ def _directive(name: str):
     return cmb.Req("IDENT").equal(name)
 
 
+def _integer():
+    return cmb.Alt(
+        cmb.MatchToken("NUMBER"),
+        cmb.MatchToken("DECIMAL"),
+    )
+
+
 class TOKEN(cmb.RuleItem):
     nodeable = True
     description = "Referencia sintáctica a un token por nombre o número."
     entrypoint = cmb.Alt(
         cmb.MatchGroup("token_names"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
     )
 
 
@@ -107,7 +114,7 @@ class PADDING(cmb.RuleItem):
     entrypoint = cmb.Seq(
         cmb.MatchToken("ARROW"),
         cmb.MatchKeyword("padding"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -118,7 +125,7 @@ class ALIGNEMENT(cmb.RuleItem):
     entrypoint = cmb.Seq(
         cmb.MatchToken("ARROW"),
         cmb.MatchKeyword("alignement"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -185,7 +192,7 @@ class RESERVE(cmb.RuleItem):
         cmb.MatchToken("ARROW"),
         cmb.MatchKeyword("reserve"),
         cmb.MatchToken("STRING"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -325,10 +332,10 @@ class STACK(cmb.RuleItem):
         cmb.MatchToken("AT"),
         cmb.MatchKeyword("stack"),
         cmb.Alt(
-            cmb.MatchToken("NUMBER"),
+            _integer(),
             cmb.Seq(
                 cmb.MatchToken("MINUS"),
-                cmb.MatchToken("NUMBER"),
+                _integer(),
             ),
         ),
         cmb.MatchToken("NEWLINE"),
@@ -454,7 +461,19 @@ class SECTIONALIGN(cmb.RuleItem):
         cmb.MatchToken("DOT"),
         _directive("sectionalign"),
         cmb.MatchToken("STRING"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
+        cmb.MatchToken("NEWLINE"),
+    )
+
+
+class SECTIONVADDR(cmb.RuleItem):
+    nodeable = True
+    description = "Define la base virtual de una sección, en bytes."
+    entrypoint = cmb.Seq(
+        cmb.MatchToken("DOT"),
+        _directive("sectionvaddr"),
+        cmb.MatchToken("STRING"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -465,7 +484,7 @@ class WORDSIZE(cmb.RuleItem):
     entrypoint = cmb.Seq(
         cmb.MatchToken("DOT"),
         _directive("wordsize"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -476,7 +495,7 @@ class ADDRESSSIZE(cmb.RuleItem):
     entrypoint = cmb.Seq(
         cmb.MatchToken("DOT"),
         _directive("addresssize"),
-        cmb.MatchToken("NUMBER"),
+        _integer(),
         cmb.MatchToken("NEWLINE"),
     )
 
@@ -607,6 +626,7 @@ class CONFIG(cmb.RuleItem):
                 cmb.Ref(DEFAULTSECTION),
                 cmb.Ref(SECTIONFLAGS),
                 cmb.Ref(SECTIONALIGN),
+                cmb.Ref(SECTIONVADDR),
                 cmb.Ref(WORDSIZE),
                 cmb.Ref(ADDRESSSIZE),
                 cmb.Ref(ENDIANESS),
@@ -797,6 +817,7 @@ __all__ = [
     "DEFAULTSECTION",
     "SECTIONFLAGS",
     "SECTIONALIGN",
+    "SECTIONVADDR",
     "WORDSIZE",
     "ADDRESSSIZE",
     "ENDIANESS",

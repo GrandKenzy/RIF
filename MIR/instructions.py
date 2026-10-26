@@ -6,8 +6,10 @@ names are :class:`CompiledRule` and :class:`CompiledRuleSet`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from Frontend import globals
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,9 @@ class CompiledRuleSet:
     """Resolved Rules produced from a ``.rif`` definition or ``.pack``."""
 
     rules: dict[str, CompiledRule]
+    inserts: tuple[Any, ...] = ()
+    before: tuple[Any, ...] = ()
+    context: globals.TargetContext = field(default_factory=globals.TargetContext)
 
 
 __all__ = [

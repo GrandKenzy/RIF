@@ -6,7 +6,7 @@ from .bitbuffer import (
     BitSpan,
     BitWriter,
 )
-from .emitter import BitEmitter, BitField, field
+from .emitter import BitEmitter, BitField, VirtualRegion, field
 from .compiler import compile_instruction, compile_rule, compile_rules
 from .compiled import build_database, load_database, program_from_dict, program_to_dict
 from .instructions import (
@@ -16,7 +16,15 @@ from .instructions import (
     Operand,
     SourceSpan,
 )
-from .semantic import MIRSemanticError, RuleRef, TableRef, TokenRef, resolve_program, resolve_rule
+from .semantic import (
+    MIRSemanticError,
+    RuleRef,
+    TableLookupRef,
+    TableRef,
+    TokenRef,
+    resolve_program,
+    resolve_rule,
+)
 from .runtime import ExecutionResult, RIFMachine, RIFRuntimeError, RuleTrace
 from .function_context import RIFFunctionContext
 from .functions import FunctionModule, RIFFunctionError, load_function_file, load_function_source
@@ -31,6 +39,7 @@ from .external import (
     prepare_target,
     tokenize_mir,
 )
+from .artifacts import ArtifactError, BinaryValue, ScalarValue, apply_before, apply_inserts
 from .output import AssemblyImage, AssemblySection
 from .pipeline import (
     Compilation,
@@ -51,6 +60,7 @@ __all__ = [
     "BitWriter",
     "BitEmitter",
     "BitField",
+    "VirtualRegion",
     "field",
     "Instruction",
     "Operand",
@@ -67,6 +77,7 @@ __all__ = [
     "MIRSemanticError",
     "TokenRef",
     "TableRef",
+    "TableLookupRef",
     "RuleRef",
     "resolve_rule",
     "resolve_program",
@@ -88,6 +99,11 @@ __all__ = [
     "compile_mir_source",
     "compile_mir_file",
     "prepare_target",
+    "ArtifactError",
+    "BinaryValue",
+    "ScalarValue",
+    "apply_inserts",
+    "apply_before",
     "AssemblyImage",
     "AssemblySection",
     "Compilation",

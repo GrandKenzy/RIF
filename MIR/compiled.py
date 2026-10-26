@@ -12,10 +12,10 @@ from gram import lexer
 from Frontend import globals
 
 from .instructions import CompiledRule, CompiledRuleSet, Instruction, Operand, SourceSpan
-from .semantic import RuleRef, TableRef, TokenRef
+from .semantic import RuleRef, TableLookupRef, TableRef, TokenRef
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 def _token_from_name(name: str) -> lexer.Token:
@@ -43,6 +43,16 @@ def _encode(value: Any) -> Any:
             "column": value.column,
             "index": value.index,
         }
+    if isinstance(value, TableLookupRef):
+        return {
+            "__type__": "table_lookup_ref",
+            "table": value.table,
+            "selector": value.selector,
+            "key": _encode(value.key),
+            "column": value.column,
+            "selector_index": value.selector_index,
+            "index": value.index,
+        }
     if isinstance(value, RuleRef):
         return {"__type__": "rule_ref", "name": value.name}
     if isinstance(value, globals.LinkerData):
@@ -62,6 +72,22 @@ def _encode(value: Any) -> Any:
             "enter_rule": value.enter_rule,
             "exit_rule": value.exit_rule,
             "path": value.path,
+        }
+    if isinstance(value, globals.InsertData):
+        return {
+            "__type__": "insert",
+            "section": value.section,
+            "kind": value.kind,
+            "value": _encode(value.value),
+            "source_path": value.source_path,
+        }
+    if isinstance(value, globals.BeforePatchData):
+        return {
+            "__type__": "before_patch",
+            "offset": value.offset,
+            "width": value.width,
+            "expression": _encode(value.expression),
+            "source_path": value.source_path,
         }
     if isinstance(value, Operand):
         return {
@@ -96,6 +122,15 @@ def _decode(value: Any) -> Any:
         return TokenRef(str(value["name"]), _token_from_name(str(value["token"])))
     if kind == "table_ref":
         return TableRef(str(value["table"]), str(value["column"]), int(value["index"]))
+    if kind == "table_lookup_ref":
+        return TableLookupRef(
+            str(value["table"]),
+            str(value["selector"]),
+            _decode(value["key"]),
+            str(value["column"]),
+            int(value["selector_index"]),
+            int(value["index"]),
+        )
     if kind == "rule_ref":
         return RuleRef(str(value["name"]))
     if kind == "linker":
@@ -113,6 +148,20 @@ def _decode(value: Any) -> Any:
             enter_rule=str(value["enter_rule"]),
             exit_rule=str(value["exit_rule"]),
             path=str(value["path"]),
+        )
+    if kind == "insert":
+        return globals.InsertData(
+            section=str(value["section"]),
+            kind=str(value["kind"]),
+            value=_decode(value.get("value")),
+            source_path=value.get("source_path"),
+        )
+    if kind == "before_patch":
+        return globals.BeforePatchData(
+            offset=int(value["offset"]),
+            width=None if value.get("width") is None else int(value["width"]),
+            expression=_decode(value.get("expression")),
+            source_path=value.get("source_path"),
         )
     if kind == "operand":
         return Operand(
@@ -153,6 +202,32 @@ def program_to_dict(
     program: CompiledRuleSet,
     source_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    inserts = [
+        _encode(
+            globals.InsertData(
+                section=item.section,
+                kind=item.kind,
+                value=item.value,
+                source_path=_portable_path(item.source_path, source_root),
+            )
+        )
+        if isinstance(item, globals.InsertData)
+        else _encode(item)
+        for item in program.inserts
+    ]
+    before = [
+        _encode(
+            globals.BeforePatchData(
+                offset=item.offset,
+                width=item.width,
+                expression=item.expression,
+                source_path=_portable_path(item.source_path, source_root),
+            )
+        )
+        if isinstance(item, globals.BeforePatchData)
+        else _encode(item)
+        for item in program.before
+    ]
     return {
         "rules": {
             name: {
@@ -172,7 +247,9 @@ def program_to_dict(
                 ],
             }
             for name, rule in program.rules.items()
-        }
+        },
+        "inserts": inserts,
+        "before": before,
     }
 
 
@@ -198,7 +275,11 @@ def program_from_dict(data: dict[str, Any]) -> CompiledRuleSet:
             instructions=tuple(instructions),
             source_path=raw_rule.get("source_path"),
         )
-    return CompiledRuleSet(rules)
+    return CompiledRuleSet(
+        rules,
+        inserts=tuple(_decode(item) for item in data.get("inserts", [])),
+        before=tuple(_decode(item) for item in data.get("before", [])),
+    )
 
 
 def _config_to_dict(config: globals.ConfigData | None) -> dict[str, Any] | None:
@@ -227,17 +308,22 @@ def _config_to_dict(config: globals.ConfigData | None) -> dict[str, Any] | None:
         "strict": config.strict,
         "allowemptysections": config.allowemptysections,
         "bitorder": config.bitorder,
+        "sectionvaddr": config.sectionvaddr,
     }
 
 
-def context_to_dict() -> dict[str, Any]:
+def context_to_dict(
+    context: globals.TargetContext | None = None,
+) -> dict[str, Any]:
+    selected = context or globals.snapshot_target_context()
     return {
-        "config": _config_to_dict(globals.CONFIG),
-        "linker": _encode(globals.LINKER),
-        "defines": sorted(globals.DEFINES),
-        "stack_size": globals.STACK_SIZE,
-        "supports": _encode(globals.SUPPORTS),
-        "asm_variants": _encode(globals.ASM_VARIANTS),
+        "config": _config_to_dict(selected.config),
+        "linker": _encode(selected.linker),
+        "defines": sorted(selected.defines),
+        "stack_size": selected.stack_size,
+        "supports": _encode(selected.supports),
+        "asm_variants": _encode(selected.asm_variants),
+        "loaded_sources": dict(selected.loaded_sources),
     }
 
 
@@ -267,11 +353,12 @@ def _load_config(data: dict[str, Any] | None) -> globals.ConfigData | None:
         strict=bool(data["strict"]),
         allowemptysections=bool(data["allowemptysections"]),
         bitorder=data.get("bitorder", "msb"),
+        sectionvaddr={key: int(value) for key, value in data.get("sectionvaddr", {}).items()},
     )
 
 
-def _load_tables(connection: sqlite3.Connection) -> None:
-    globals.TABLES.clear()
+def _load_tables(connection: sqlite3.Connection) -> dict[str, globals.TableData]:
+    tables: dict[str, globals.TableData] = {}
     table_names = connection.execute(
         "SELECT name, headers_json FROM table_defs ORDER BY name"
     ).fetchall()
@@ -285,34 +372,57 @@ def _load_tables(connection: sqlite3.Connection) -> None:
                 (name,),
             )
         ]
-        globals.TABLES[name] = globals.TableData(
+        columns = {header: index for index, header in enumerate(headers)}
+        tables[name] = globals.TableData(
             name=name,
             headers=headers,
             matrix=rows,
-            columns={header: index for index, header in enumerate(headers)},
+            columns=columns,
         )
+    return tables
 
 
-def load_context(connection: sqlite3.Connection, context: dict[str, Any]) -> None:
-    globals.CONFIG = _load_config(context.get("config"))
+def context_from_dict(
+    connection: sqlite3.Connection,
+    context: dict[str, Any],
+) -> globals.TargetContext:
+    """Decode a target context without consulting or mutating runtime globals."""
+
     linker = _decode(context.get("linker"))
-    globals.LINKER = linker
-    globals.DEFINES.clear()
-    globals.DEFINES.update(context.get("defines", []))
-    globals.STACK_SIZE = context.get("stack_size")
-    globals.STACK = {} if globals.STACK_SIZE is not None else None
-    globals.SUPPORTS.clear()
-    globals.SUPPORTS.update(_decode(context.get("supports", {"__type__": "dict", "items": []})))
-    globals.ASM_VARIANTS.clear()
-    globals.ASM_VARIANTS.update(
-        _decode(context.get("asm_variants", {"__type__": "dict", "items": []}))
+    supports = _decode(
+        context.get("supports", {"__type__": "dict", "items": []})
     )
-    _load_tables(connection)
+    variants = _decode(
+        context.get("asm_variants", {"__type__": "dict", "items": []})
+    )
+    return globals.TargetContext(
+        config=_load_config(context.get("config")),
+        linker=linker,
+        defines=frozenset(context.get("defines", [])),
+        stack_size=context.get("stack_size"),
+        tables=_load_tables(connection),
+        supports=supports,
+        asm_variants=variants,
+        loaded_sources=dict(context.get("loaded_sources", {})),
+    )
+
+
+def load_context(
+    connection: sqlite3.Connection,
+    context: dict[str, Any],
+) -> globals.TargetContext:
+    """Decode and expose a context for legacy frontend introspection."""
+
+    target_context = context_from_dict(connection, context)
+    globals.activate_target_context(target_context)
+    return target_context
 
 
 def build_database(
     program: CompiledRuleSet,
     source_root: str | Path | None = None,
+    *,
+    source_fingerprint: str | None = None,
 ) -> bytes:
     connection = sqlite3.connect(":memory:")
     try:
@@ -338,6 +448,11 @@ def build_database(
             """
         )
         connection.execute("INSERT INTO meta VALUES (?, ?)", ("schema", str(SCHEMA_VERSION)))
+        if source_fingerprint is not None:
+            connection.execute(
+                "INSERT INTO meta VALUES (?, ?)",
+                ("source_fingerprint", source_fingerprint),
+            )
         connection.execute(
             "INSERT INTO artifacts VALUES (?, ?)",
             (
@@ -349,8 +464,8 @@ def build_database(
                 ),
             ),
         )
-        connection.execute("INSERT INTO artifacts VALUES (?, ?)", ("context", json.dumps(context_to_dict(), ensure_ascii=False, separators=(",", ":"))))
-        for table in globals.TABLES.values():
+        connection.execute("INSERT INTO artifacts VALUES (?, ?)", ("context", json.dumps(context_to_dict(program.context), ensure_ascii=False, separators=(",", ":"))))
+        for table in program.context.tables.values():
             connection.execute(
                 "INSERT INTO table_defs VALUES (?, ?)",
                 (table.name, json.dumps(list(table.headers), ensure_ascii=False)),
@@ -371,13 +486,25 @@ def build_database(
         connection.close()
 
 
-def load_database(data: bytes) -> CompiledRuleSet:
+def load_database(
+    data: bytes,
+    *,
+    expected_fingerprint: str | None = None,
+) -> CompiledRuleSet:
     connection = sqlite3.connect(":memory:")
     try:
         connection.deserialize(data)
         row = connection.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
         if row is None or int(row[0]) != SCHEMA_VERSION:
             raise ValueError("Versión de base SQLite compilada no compatible.")
+        if expected_fingerprint is not None:
+            fingerprint_row = connection.execute(
+                "SELECT value FROM meta WHERE key = 'source_fingerprint'"
+            ).fetchone()
+            if fingerprint_row is None or fingerprint_row[0] != expected_fingerprint:
+                raise ValueError(
+                    "La base SQLite compilada no corresponde al contenido del paquete."
+                )
         program_row = connection.execute(
             "SELECT value FROM artifacts WHERE name = 'program'"
         ).fetchone()
@@ -387,8 +514,14 @@ def load_database(data: bytes) -> CompiledRuleSet:
         if program_row is None or context_row is None:
             raise ValueError("La base compilada no contiene el programa RIF completo.")
         context = json.loads(context_row[0])
-        load_context(connection, context)
-        return program_from_dict(json.loads(program_row[0]))
+        target_context = load_context(connection, context)
+        program = program_from_dict(json.loads(program_row[0]))
+        return CompiledRuleSet(
+            rules=program.rules,
+            inserts=program.inserts,
+            before=program.before,
+            context=target_context,
+        )
     finally:
         connection.close()
 
@@ -397,6 +530,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "build_database",
     "context_to_dict",
+    "context_from_dict",
     "load_context",
     "load_database",
     "program_from_dict",

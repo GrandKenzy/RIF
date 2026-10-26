@@ -1,0 +1,73 @@
+; AMD64 Linux raw-binary target.
+; This target encodes a minimal _exit(42) program.
+
+@config:
+.sectiondef ".section"
+.make section "text"
+.make section "data"
+.make section "bss"
+.sectionend ":"
+.entrysection "text"
+.entrylabel "_start"
+.comment ";"
+.labelend ":"
+.datasection "data"
+.defaultsection "text"
+.sectionflags "text" "rx"
+.sectionflags "data" "rw"
+.sectionflags "bss" "rw"
+.wordsize 64
+.addresssize 64
+.endianess "little"
+.casesensitive true
+.symbolprefix "_"
+.localprefix "."
+.undefinedsymbols "error"
+.duplicateSymbols "error"
+.strict true
+.allowemptysections false
+.bitorder "msb"
+@configend
+
+@linker:
+.ext ".asm"
+.name "main"
+.searching ""
+@linkerend
+
+; ModRM byte for: 48 C7 /0 r/m64, where the register is the destination.
+@table registers
+| name | modrm |
+_
+| rax | 192 |
+_
+| rcx | 193 |
+_
+| rdx | 194 |
+_
+| rbx | 195 |
+_
+| rsp | 196 |
+_
+| rbp | 197 |
+_
+| rsi | 198 |
+_
+| rdi | 199 |
+@end
+
+; mov reg, imm32 -> REX.W + C7 /0 + ModRM + imm32.
+@rule mov:
+-> IDENT
+-> $registers.name, IDENT
+-> COMMA
+-> emitbits 72 8
+-> emitbits 199 8
+-> emitbits $registers.modrm 8
+-> fits 32
+
+; syscall -> 0F 05.
+@rule syscall:
+-> IDENT
+-> emitbits 15 8
+-> emitbits 5 8

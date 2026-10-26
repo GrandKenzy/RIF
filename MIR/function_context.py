@@ -43,19 +43,19 @@ class RIFFunctionContext:
 
     @property
     def config(self) -> globals.ConfigData | None:
-        return globals.CONFIG
+        return self.program.context.config
 
     @property
     def linker(self) -> globals.LinkerData | None:
-        return globals.LINKER
+        return self.program.context.linker
 
     @property
-    def defines(self) -> set[str]:
-        return globals.DEFINES
+    def defines(self) -> frozenset[str]:
+        return self.program.context.defines
 
     @property
     def tables(self) -> dict[str, globals.TableData]:
-        return globals.TABLES
+        return self.program.context.tables
 
     @property
     def rules(self) -> dict[str, Any]:
@@ -63,31 +63,31 @@ class RIFFunctionContext:
 
     @property
     def stack(self) -> dict[int, Any] | None:
-        return globals.STACK
+        return self.machine.stack
 
     @property
     def stack_size(self) -> int | None:
-        return globals.STACK_SIZE
+        return self.program.context.stack_size
 
     @property
     def supports(self) -> dict[str, globals.SupportData]:
-        return globals.SUPPORTS
+        return self.program.context.supports
 
     @property
     def asm_variants(self) -> dict[str, globals.AsmVariantData]:
-        return globals.ASM_VARIANTS
+        return self.program.context.asm_variants
 
     @property
     def loaded_sources(self) -> dict[str, str]:
-        return globals.LOADED_SOURCES
+        return self.program.context.loaded_sources
 
     @property
     def variant_stack(self) -> list[globals.VariantFrame]:
-        return globals.VARIANT_STACK
+        return list(getattr(self.machine, "variant_stack", ()))
 
     @property
     def source_provider(self) -> Any | None:
-        return globals.SOURCE_PROVIDER
+        return None
 
     @property
     def coder(self) -> BitEmitter:
@@ -100,6 +100,36 @@ class RIFFunctionContext:
     @property
     def binary(self) -> memoryview:
         return self.buffer.view()
+
+    @property
+    def image_binary(self) -> bytes:
+        """Return the current complete file image across all sections."""
+
+        if self.image is None:
+            return b""
+        return self.image.file_bytes()
+
+    @property
+    def final_binary(self) -> bytes:
+        """Alias for the complete image visible to finalization functions."""
+
+        return self.image_binary
+
+    @property
+    def file_offset(self) -> int:
+        """Physical file offset of the active section after layout."""
+
+        if self.image is None or self.section is None:
+            return 0
+        return self.image.section_offset(self.section.name)
+
+    @property
+    def virtual_base(self) -> int:
+        """Virtual base of the active section after layout."""
+
+        if self.image is None or self.section is None:
+            return 0
+        return self.image.section_virtual_base(self.section.name)
 
     @property
     def tokens(self) -> tuple[Any, ...]:
@@ -119,7 +149,11 @@ class RIFFunctionContext:
 
     @property
     def virtual_position(self) -> int:
-        return self.machine.emitter.buffer.bit_length
+        return self.machine.emitter.virtual_position
+
+    @property
+    def virtual_regions(self) -> dict[str, Any]:
+        return self.machine.emitter.virtual_regions
 
     @property
     def current_token(self) -> Any | None:
@@ -138,6 +172,10 @@ class RIFFunctionContext:
     @property
     def storage(self) -> dict[str, Any]:
         return self.machine.storage
+
+    @property
+    def datastack(self) -> list[Any]:
+        return self.machine.datastack
 
     @property
     def selected_rows(self) -> dict[str, int]:

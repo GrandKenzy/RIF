@@ -84,6 +84,31 @@ class PackTests(unittest.TestCase):
             ).read_bytes()
             self.assertEqual(compiled_first, compiled_second)
 
+    def test_pack_carries_insert_assets_with_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            payload = root / "payload.bin"
+            main.write_text(
+                "@insert:\n"
+                '.file "payload.bin"\n'
+                "@end\n",
+                encoding="utf-8",
+            )
+            payload.write_bytes(b"\x00\xffpayload")
+
+            package = create_pack(main)
+            manifest = read_pack(package)
+
+            self.assertEqual(
+                [(entry.path, entry.size) for entry in manifest.assets],
+                [("assets/payload.bin", len(payload.read_bytes()))],
+            )
+            with PackReader(package) as reader:
+                self.assertEqual(reader.assets(), {"payload.bin": payload.read_bytes()})
+            with zipfile.ZipFile(package) as archive:
+                self.assertEqual(archive.read("assets/payload.bin"), payload.read_bytes())
+
     def test_precompiled_pack_stores_tables_in_sqlite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

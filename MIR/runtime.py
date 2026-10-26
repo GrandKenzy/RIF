@@ -7,13 +7,14 @@ from typing import Any, Iterable
 
 from gram import lexer
 
-from Frontend import globals
-
 from .emitter import BitEmitter, BitField
 from .function_context import RIFFunctionContext
 from .functions import FunctionModule, RIFFunctionError
 from .instructions import CompiledRuleSet, Instruction, Operand
-from .semantic import RuleRef, TableRef, TokenRef
+from .semantic import RuleRef, TableLookupRef, TableRef, TokenRef
+
+
+MAX_RULE_CALL_DEPTH = 256
 
 
 class RIFRuntimeError(RuntimeError):
@@ -35,13 +36,17 @@ class ExecutionResult:
 
 @dataclass(frozen=True)
 class RuleTrace:
-    """Physical output span produced by one Rule invocation."""
+    """Physical and virtual spans produced by one Rule invocation."""
 
     name: str
     start: int
     bits: int
     end: int
     padding_bits: int
+    virtual_start: int
+    virtual_bits: int
+    virtual_end: int
+    virtual_padding_bits: int
 
     @property
     def emitted_bits(self) -> int:
@@ -52,7 +57,9 @@ class RuleTrace:
 class _RuleTraceState:
     name: str
     start: int
+    virtual_start: int
     padding_bits: int = 0
+    virtual_padding_bits: int = 0
 
 
 class RIFMachine:
@@ -67,8 +74,9 @@ class RIFMachine:
         section_name: str | None = None,
     ) -> None:
         self.program = program
+        self.context = program.context
         self.emitter = emitter or BitEmitter(
-            wordsize=globals.CONFIG.wordsize if globals.CONFIG else 32
+            wordsize=self.context.config.wordsize if self.context.config else 32
         )
         self.function_module = function_module
         self.function_context: RIFFunctionContext | None = None
@@ -78,12 +86,19 @@ class RIFMachine:
         self.last_token: lexer.TokenType | None = None
         self.stored_token: lexer.TokenType | None = None
         self.storage: dict[str, lexer.TokenType] = {}
+        self.stack: dict[int, Any] | None = (
+            {} if self.context.stack_size is not None else None
+        )
+        self.datastack: list[Any] = []
         self.selected_rows: dict[str, int] = {}
         self.last_call: object = None
         self.rule_traces: list[RuleTrace] = []
         self.last_rule_trace: RuleTrace | None = None
         self.rule_addresses: dict[str, int] = {}
+        self.virtual_rule_addresses: dict[str, int] = {}
+        self.variant_stack: list[str] = []
         self._trace_stack: list[_RuleTraceState] = []
+        self._rule_depth = 0
 
     def bind_function_context(self, context: RIFFunctionContext) -> None:
         """Bind the live context passed to ``funcs.py``."""
@@ -98,11 +113,15 @@ class RIFMachine:
         if rule_name not in self.program.rules:
             raise RIFRuntimeError(f"La Rule '{rule_name}' no existe en el MIR.")
         self.storage.clear()
+        self.datastack.clear()
         self.selected_rows.clear()
         self.rule_traces.clear()
         self.last_rule_trace = None
         self.rule_addresses.clear()
+        self.virtual_rule_addresses.clear()
+        self.variant_stack.clear()
         self._trace_stack.clear()
+        self._rule_depth = 0
         return self.execute_line(rule_name, tokens)
 
     def execute_line(
@@ -160,15 +179,36 @@ class RIFMachine:
             raise RIFRuntimeError(
                 f"La tabla '{reference.table}' no tiene una fila seleccionada."
             )
-        table = globals.TABLES[reference.table]
+        table = self.context.tables[reference.table]
         row = table.matrix[self.selected_rows[reference.table]]
         return row[reference.index]
 
+    def _table_lookup_value(self, reference: TableLookupRef) -> Any:
+        table = self.context.tables[reference.table]
+        try:
+            row_index = table.index_for(reference.selector)[reference.key]
+        except KeyError as exc:
+            raise RIFRuntimeError(
+                f"La clave {reference.key!r} no existe en "
+                f"{reference.table}.{reference.selector}."
+            ) from exc
+        return table.matrix[row_index][reference.index]
+
     def _value(self, operand: Operand, source: Instruction | None = None) -> Any:
+        if operand.kind == "data_pop":
+            if not self.datastack:
+                raise RIFRuntimeError("DLOAD requiere un valor en el datastack.")
+            return self.datastack.pop()
+        if operand.kind == "data_peek":
+            if not self.datastack:
+                raise RIFRuntimeError("DPEEK requiere un valor en el datastack.")
+            return self.datastack[-1]
+        if operand.kind == "data_depth":
+            return len(self.datastack)
         if operand.kind == "size":
             return self.emitter.buffer.bit_length
         if operand.kind == "vsize":
-            return self.emitter.buffer.bit_length
+            return self.emitter.virtual_position
         if operand.kind == "alignment":
             return self._current_alignment()
         if operand.kind in {
@@ -178,12 +218,18 @@ class RIFMachine:
             "reservation_vaddress",
             "reservation_distance",
             "reservation_vdistance",
+            "reservation_width",
+            "reservation_vwidth",
         }:
             return self._address_value(operand.kind, str(operand.value))
         if operand.kind == "table_access":
             if not isinstance(operand.resolved, TableRef):
                 raise RIFRuntimeError("TABLE_ACCESS no fue resuelto semánticamente.")
             return self._table_value(operand.resolved)
+        if operand.kind == "table_lookup":
+            if not isinstance(operand.resolved, TableLookupRef):
+                raise RIFRuntimeError("TABLE_LOOKUP no fue resuelto semánticamente.")
+            return self._table_lookup_value(operand.resolved)
         if operand.kind == "reservation_access":
             return self.emitter.query(str(operand.value)).value
         if operand.kind == "call":
@@ -192,7 +238,7 @@ class RIFMachine:
         return operand.value
 
     def _current_alignment(self) -> int:
-        config = globals.CONFIG
+        config = self.context.config
         if config is None:
             return 0
         section = self.section_name or config.defaultsection
@@ -200,24 +246,126 @@ class RIFMachine:
 
     def _address_value(self, kind: str, name: str) -> int:
         regions = self.emitter.buffer.regions
-        if kind in {"reservation_address", "reservation_vaddress", "reservation_distance", "reservation_vdistance"}:
-            if name not in regions:
-                raise RIFRuntimeError(f"No existe una reserva llamada '{name}'.")
-            address = regions[name].offset
-        else:
-            if name in regions:
+        virtual = kind in {
+            "vdistance",
+            "reservation_vaddress",
+            "reservation_vdistance",
+            "reservation_vwidth",
+        }
+        if kind in {
+            "reservation_address",
+            "reservation_vaddress",
+            "reservation_distance",
+            "reservation_vdistance",
+            "reservation_width",
+            "reservation_vwidth",
+        }:
+            if virtual:
+                try:
+                    address = self.emitter.virtual_query(name).offset
+                except KeyError as exc:
+                    raise RIFRuntimeError(f"No existe una reserva virtual llamada '{name}'.") from exc
+            else:
+                if name not in regions:
+                    raise RIFRuntimeError(f"No existe una reserva llamada '{name}'.")
                 address = regions[name].offset
-            elif name in self.rule_addresses:
+        else:
+            if virtual and name in self.emitter.virtual_regions:
+                address = self.emitter.virtual_query(name).offset
+            elif virtual and name in self.virtual_rule_addresses:
+                address = self.virtual_rule_addresses[name]
+            elif not virtual and name in regions:
+                address = regions[name].offset
+            elif not virtual and name in self.rule_addresses:
                 address = self.rule_addresses[name]
             else:
                 raise RIFRuntimeError(f"No existe una reserva o etiqueta llamada '{name}'.")
-        if kind in {"distance", "vdistance", "reservation_distance", "reservation_vdistance"}:
-            return self.emitter.buffer.bit_length - address
+        if kind in {"reservation_width", "reservation_vwidth"}:
+            return self.emitter.virtual_query(name).width if virtual else regions[name].width
+        if kind in {
+            "distance",
+            "vdistance",
+            "reservation_distance",
+            "reservation_vdistance",
+        }:
+            current = self.emitter.virtual_position if virtual else self.emitter.buffer.bit_length
+            return current - address
         return address
 
     def _record_padding(self, width: int) -> None:
         if self._trace_stack:
             self._trace_stack[-1].padding_bits += width
+
+    def _record_virtual_padding(self, width: int) -> None:
+        if self._trace_stack:
+            self._trace_stack[-1].virtual_padding_bits += width
+
+    def _bit_integer(
+        self, operand: Operand, source: Instruction, name: str, *, positive: bool
+    ) -> int:
+        value = self._value(operand, source)
+        if isinstance(value, bool) or not isinstance(value, int) or value < (1 if positive else 0):
+            minimum = "positivo" if positive else "no negativo"
+            raise RIFRuntimeError(f"{name.capitalize()} debe ser un entero {minimum}.")
+        return value
+
+    def _fit_width(self, operand: Operand, source: Instruction) -> int:
+        value = (
+            self._value(Operand("data_peek", None), source)
+            if operand.kind == "data_pop"
+            else self._value(operand, source)
+        )
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise RIFRuntimeError("FIT requiere un ancho entero.")
+        if value <= 0 or value % 2:
+            raise RIFRuntimeError("FIT requiere un ancho positivo y múltiplo de dos.")
+        return value
+
+    @staticmethod
+    def _immediate_fits(token: lexer.TokenType, width: int) -> bool:
+        if token.token not in {lexer.Token.NUMBER, lexer.Token.DECIMAL, lexer.Token.STRING}:
+            raise RIFRuntimeError(
+                "FIT requiere que el token actual sea NUMBER, DECIMAL o STRING."
+            )
+        value = token.value
+        if token.token == lexer.Token.STRING:
+            if not isinstance(value, str) or not value or any(bit not in "01" for bit in value):
+                raise RIFRuntimeError("FIT solo puede emitir strings binarios.")
+            return len(value) <= width
+        if token.token == lexer.Token.DECIMAL and isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RIFRuntimeError("FIT requiere un inmediato entero no negativo.")
+        return value < (1 << width)
+
+    @staticmethod
+    def _immediate_bits(token: lexer.TokenType, width: int, *, truncate: bool) -> int:
+        if not RIFMachine._immediate_fits(token, width) and not truncate:
+            value = token.value
+            if token.token == lexer.Token.STRING:
+                raise RIFRuntimeError(
+                    f"El string binario tiene {len(value)} bits y no cabe en {width}."
+                )
+            raise RIFRuntimeError(f"El inmediato {value} no cabe en {width} bits.")
+        value = token.value
+        if token.token == lexer.Token.DECIMAL and isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if token.token == lexer.Token.STRING:
+            value = value[-width:] if truncate else value
+            return int(value, 2)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RIFRuntimeError("FIT requiere un inmediato entero no negativo.")
+        return value & ((1 << width) - 1)
+
+    def _emit_fit(self, operand: Operand, instruction: Instruction, *, exact: bool) -> None:
+        width = self._fit_width(operand, instruction)
+        token = self._current()
+        value = self._immediate_bits(token, width, truncate=not exact)
+        self.emitter.emit(value, width)
+        if operand.kind == "data_pop":
+            self.datastack.pop()
+        self.position += 1
+        self.last_token = token
 
     def _call_external(self, name: str, source: Operand | Instruction) -> bool | str:
         if self.function_module is None:
@@ -269,14 +417,9 @@ class RIFMachine:
         operand: Operand,
         source: Instruction | None = None,
     ) -> BitField | str:
-        value = self._value(operand, source)
-        if operand.kind == "number" and operand.width:
-            return BitField(int(value), operand.width)
-        if operand.kind == "bool":
-            return BitField(1 if value else 0, 1)
-        if operand.kind == "reservation_access":
-            query = self.emitter.query(str(operand.value))
-            return BitField(query.value, query.span.width)
+        value = self._bit_field(operand, source)
+        if isinstance(value, BitField):
+            return value
         if isinstance(value, str):
             return value
         if isinstance(value, int):
@@ -297,10 +440,20 @@ class RIFMachine:
         raise RIFRuntimeError("La condición no es booleana ni una llamada externa.")
 
     def _execute_rule(self, rule_name: str) -> None:
+        if self._rule_depth >= MAX_RULE_CALL_DEPTH:
+            raise RIFRuntimeError(
+                f"La profundidad de llamadas excede {MAX_RULE_CALL_DEPTH} Rules."
+            )
         rule = self.program.rules[rule_name]
-        frame = _RuleTraceState(rule_name, self.emitter.buffer.bit_length)
-        self.rule_addresses[rule_name] = frame.start
+        frame = _RuleTraceState(
+            rule_name,
+            self.emitter.buffer.bit_length,
+            self.emitter.virtual_position,
+        )
+        self.rule_addresses.setdefault(rule_name, frame.start)
+        self.virtual_rule_addresses.setdefault(rule_name, frame.virtual_start)
         self._trace_stack.append(frame)
+        self._rule_depth += 1
         try:
             for instruction in rule.instructions:
                 self._execute_instruction(instruction)
@@ -314,10 +467,15 @@ class RIFMachine:
                 bits=end - frame.start,
                 end=end,
                 padding_bits=frame.padding_bits,
+                virtual_start=frame.virtual_start,
+                virtual_bits=self.emitter.virtual_position - frame.virtual_start,
+                virtual_end=self.emitter.virtual_position,
+                virtual_padding_bits=frame.virtual_padding_bits,
             )
             self.rule_traces.append(trace)
             self.last_rule_trace = trace
             self._trace_stack.pop()
+            self._rule_depth -= 1
 
     def _execute_instruction(self, instruction: Instruction) -> None:
         opcode = instruction.opcode
@@ -337,17 +495,49 @@ class RIFMachine:
                 raise RIFRuntimeError(
                     f"TABLE_MATCHER esperaba Token.{token_ref.token.name}."
                 )
-            table = globals.TABLES[table_ref.table]
-            for index, row in enumerate(table.matrix):
-                if row[table_ref.index] == token.value:
-                    self.selected_rows[table_ref.table] = index
-                    self.position += 1
-                    self.last_token = token
-                    return
+            table = self.context.tables[table_ref.table]
+            try:
+                index = table.index_for(table_ref.column).get(token.value)
+            except (TypeError, ValueError) as exc:
+                raise RIFRuntimeError(str(exc)) from exc
+            if index is not None:
+                self.selected_rows[table_ref.table] = index
+                self.position += 1
+                self.last_token = token
+                return
             raise RIFRuntimeError(
                 f"El valor {token.value!r} no existe en "
                 f"{table_ref.table}.{table_ref.column}."
             )
+
+        if opcode == "dload":
+            references = operands[0].resolved
+            if not isinstance(references, tuple) or len(references) != 2 or not all(isinstance(ref, TableRef) for ref in references):
+                raise RIFRuntimeError("DLOAD no fue resuelto semánticamente.")
+            selector, field = references
+            token = self._current()
+            table = self.context.tables[selector.table]
+            try:
+                row_index = table.index_for(selector.column).get(token.value)
+            except TypeError as exc:
+                raise RIFRuntimeError("El token actual no es indexable en la tabla.") from exc
+            if row_index is None:
+                raise RIFRuntimeError(
+                    f"El valor {token.value!r} no existe en {selector.table}.{selector.column}."
+                )
+            self.datastack.append(table.matrix[row_index][field.index])
+            self.selected_rows[selector.table] = row_index
+            self.position += 1
+            self.last_token = token
+            return
+
+        if opcode == "dsave":
+            self.datastack.append(self._value(operands[0], instruction))
+            return
+
+        if opcode == "dpop":
+            self._value(Operand("data_pop", None), instruction)
+            return
 
         if opcode == "store":
             token = self._current()
@@ -383,6 +573,25 @@ class RIFMachine:
             self.emitter.emmit(value)
             return
 
+        if opcode == "fits":
+            self._emit_fit(operands[0], instruction, exact=False)
+            return
+
+        if opcode == "iffits":
+            self._emit_fit(operands[0], instruction, exact=True)
+            return
+
+        if opcode == "ifnfits":
+            width = self._fit_width(operands[0], instruction)
+            token = self._current()
+            if not self._immediate_fits(token, width):
+                if operands[0].kind == "data_pop":
+                    self.datastack.pop()
+                self.position += 1
+                self.last_token = token
+                return
+            raise RIFRuntimeError(f"El inmediato cabe en {width} bits; IFNFITS falló.")
+
         if opcode == "padding":
             width = int(operands[0].value)
             self.emitter.padding(width)
@@ -396,6 +605,37 @@ class RIFMachine:
             if width:
                 self.emitter.padding(width)
                 self._record_padding(width)
+            return
+
+        if opcode == "vpadding":
+            width = int(operands[0].value)
+            self.emitter.vpadding(width)
+            self._record_virtual_padding(width)
+            return
+
+        if opcode == "valignement":
+            alignment = int(operands[0].value)
+            width = (-self.emitter.virtual_position) % alignment
+            if width:
+                self.emitter.vpadding(width)
+                self._record_virtual_padding(width)
+            return
+
+        if opcode in {"emitbits", "readbits", "patchbits"}:
+            try:
+                if opcode == "emitbits":
+                    value = self._value(operands[0], instruction)
+                    width = self._bit_integer(operands[1], instruction, "ancho", positive=True)
+                    self.emitter.emit(value, width)
+                else:
+                    offset = self._bit_integer(operands[0], instruction, "offset", positive=False)
+                    width = self._bit_integer(operands[1], instruction, "ancho", positive=True)
+                    if opcode == "readbits":
+                        self.datastack.append(self.emitter.read_bits(offset, width))
+                    else:
+                        self.emitter.patch_bits(offset, width, self._value(operands[2], instruction))
+            except (ValueError, TypeError) as exc:
+                raise RIFRuntimeError(str(exc)) from exc
             return
 
         if opcode == "emitfr":
@@ -449,6 +689,10 @@ class RIFMachine:
             self.emitter.reserve(str(operands[0].value), int(operands[1].value))
             return
 
+        if opcode == "vreserve":
+            self.emitter.vreserve(str(operands[0].value), int(operands[1].value))
+            return
+
         if opcode == "ldres":
             self.emitter.ldres(
                 str(operands[0].value),
@@ -483,4 +727,10 @@ class RIFMachine:
         raise NotImplementedError(f"El runtime todavía no implementa '{opcode}'.")
 
 
-__all__ = ["RIFRuntimeError", "ExecutionResult", "RuleTrace", "RIFMachine"]
+__all__ = [
+    "MAX_RULE_CALL_DEPTH",
+    "RIFRuntimeError",
+    "ExecutionResult",
+    "RuleTrace",
+    "RIFMachine",
+]

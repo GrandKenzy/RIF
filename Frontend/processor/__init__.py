@@ -12,6 +12,7 @@ from .visitors.rule import visit as visit_rule
 from .visitors.stack import visit as visit_stack
 from .visitors.table import visit as visit_table
 from .visitors.variant import visit_support, visit_variant
+from .visitors.artifacts import visit_before, visit_insert
 from .sources import load_source
 from .variants import current_variant, enter_variant, exit_variant, load_variants as _load_variants
 
@@ -52,6 +53,7 @@ def process(
             "root": {
                 "CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT",
                 "TABLE", "STACK", "RULE", "LOAD_FILE",
+                "INSERT", "BEFORE",
             },
             "include": {"DEFINE", "TABLE", "RULE", "LOAD_FILE"},
             "variant": {"DEFINE", "RULE"},
@@ -105,6 +107,10 @@ def process(
                     scope="include",
                     source_provider=provider,
                 )
+            elif name == "INSERT":
+                visit_insert(node, source_path=source_key)
+            elif name == "BEFORE":
+                visit_before(node, source_path=source_key)
             else:
                 print("falta por procesar", name)
 

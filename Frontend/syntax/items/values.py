@@ -3,12 +3,31 @@ from gram import combinators as cmb
 
 class TABLE_ACCESS(cmb.RuleItem):
     nodeable = True
-    description = "Acceso sintáctico a una columna de tabla."
-    entrypoint = cmb.Seq(
-        cmb.MatchToken("DOLLAR"),
-        cmb.MatchToken("IDENT"),
-        cmb.MatchToken("DOT"),
-        cmb.MatchToken("IDENT"),
+    description = "Acceso simple o indexado a una columna de tabla."
+    entrypoint = cmb.Alt(
+        cmb.Seq(
+            cmb.MatchToken("DOLLAR"),
+            cmb.MatchToken("IDENT"),
+            cmb.MatchToken("DOT"),
+            cmb.MatchToken("IDENT"),
+            cmb.MatchToken("LBRACKET"),
+            cmb.Alt(
+                cmb.MatchToken("IDENT"),
+                cmb.MatchToken("NUMBER"),
+                cmb.MatchToken("DECIMAL"),
+                cmb.MatchToken("STRING"),
+                cmb.MatchToken("BOOL"),
+            ),
+            cmb.MatchToken("RBRACKET"),
+            cmb.MatchToken("DOT"),
+            cmb.MatchToken("IDENT"),
+        ),
+        cmb.Seq(
+            cmb.MatchToken("DOLLAR"),
+            cmb.MatchToken("IDENT"),
+            cmb.MatchToken("DOT"),
+            cmb.MatchToken("IDENT"),
+        ),
     )
 
 
@@ -63,6 +82,28 @@ class ALIGNMENT_VALUE(cmb.RuleItem):
     )
 
 
+class DDEPTH_VALUE(cmb.RuleItem):
+    nodeable = True
+    description = "Número de valores en el datastack."
+    entrypoint = cmb.Seq(
+        cmb.MatchToken("COLON"),
+        cmb.MatchToken("COLON"),
+        cmb.MatchKeyword("DDEPTH"),
+    )
+
+
+class DLOAD_VALUE(cmb.RuleItem):
+    nodeable = True
+    description = "Extrae el último valor del datastack."
+    entrypoint = cmb.MatchKeyword("dload")
+
+
+class DPEEK_VALUE(cmb.RuleItem):
+    nodeable = True
+    description = "Consulta el último valor del datastack sin extraerlo."
+    entrypoint = cmb.MatchKeyword("dpeek")
+
+
 def _reservation_value(name: str):
     return cmb.Seq(
         cmb.MatchKeyword(name),
@@ -106,6 +147,18 @@ class RESVDIST_VALUE(cmb.RuleItem):
     entrypoint = _reservation_value("resvdist")
 
 
+class RESWIDTH_VALUE(cmb.RuleItem):
+    nodeable = True
+    description = "Ancho físico de una reserva en bits."
+    entrypoint = _reservation_value("reswidth")
+
+
+class VRESWIDTH_VALUE(cmb.RuleItem):
+    nodeable = True
+    description = "Ancho virtual de una reserva en bits."
+    entrypoint = _reservation_value("vreswidth")
+
+
 class VALUE(cmb.RuleItem):
     nodeable = True
 
@@ -117,11 +170,16 @@ __all__ = [
     "SIZE_VALUE",
     "VSIZE_VALUE",
     "ALIGNMENT_VALUE",
+    "DDEPTH_VALUE",
+    "DLOAD_VALUE",
+    "DPEEK_VALUE",
     "DIST_VALUE",
     "VDIST_VALUE",
     "RESDIR_VALUE",
     "RESVDIR_VALUE",
     "RESDIST_VALUE",
     "RESVDIST_VALUE",
+    "RESWIDTH_VALUE",
+    "VRESWIDTH_VALUE",
     "VALUE",
 ]

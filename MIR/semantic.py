@@ -30,6 +30,16 @@ class TableRef:
 
 
 @dataclass(frozen=True)
+class TableLookupRef:
+    table: str
+    selector: str
+    key: Any
+    column: str
+    selector_index: int
+    index: int
+
+
+@dataclass(frozen=True)
 class RuleRef:
     name: str
 
@@ -64,12 +74,16 @@ def _resolve_token(instruction: Instruction, operand: Operand) -> Operand:
     raise _error(instruction, f"referencia de token inválida: {value!r}.")
 
 
-def _resolve_table(instruction: Instruction, operand: Operand) -> Operand:
+def _resolve_table(
+    instruction: Instruction,
+    operand: Operand,
+    context: globals.TargetContext,
+) -> Operand:
     try:
         table_name, column_name = operand.value
     except (TypeError, ValueError) as exc:
         raise _error(instruction, "TABLE_ACCESS no tiene tabla y columna.") from exc
-    table = globals.TABLES.get(table_name)
+    table = context.tables.get(table_name)
     if table is None:
         raise _error(instruction, f"la tabla '{table_name}' no existe.")
     try:
@@ -85,18 +99,97 @@ def _resolve_table(instruction: Instruction, operand: Operand) -> Operand:
     )
 
 
-def _resolve_operand(instruction: Instruction, operand: Operand) -> Operand:
+def _resolve_table_lookup(
+    instruction: Instruction,
+    operand: Operand,
+    context: globals.TargetContext,
+) -> Operand:
+    try:
+        table_name, selector, key, column_name = operand.value
+    except (TypeError, ValueError) as exc:
+        raise _error(instruction, "TABLE_LOOKUP no tiene tabla, selector, clave y columna.") from exc
+    table = context.tables.get(table_name)
+    if table is None:
+        raise _error(instruction, f"la tabla '{table_name}' no existe.")
+    try:
+        selector_index = table.columns[selector]
+    except KeyError as exc:
+        raise _error(
+            instruction,
+            f"la columna selectora '{selector}' no existe en la tabla '{table_name}'.",
+        ) from exc
+    try:
+        index = table.columns[column_name]
+    except KeyError as exc:
+        raise _error(
+            instruction,
+            f"la columna '{column_name}' no existe en la tabla '{table_name}'.",
+        ) from exc
+    try:
+        row_index = table.index_for(selector).get(key)
+    except (TypeError, ValueError) as exc:
+        raise _error(instruction, str(exc)) from exc
+    if row_index is None:
+        raise _error(
+            instruction,
+            f"la clave {key!r} no existe en {table_name}.{selector}.",
+        )
+    return replace(
+        operand,
+        resolved=TableLookupRef(
+            table_name,
+            selector,
+            key,
+            column_name,
+            selector_index,
+            index,
+        ),
+    )
+
+
+def _resolve_table_capture(
+    instruction: Instruction,
+    operand: Operand,
+    context: globals.TargetContext,
+) -> Operand:
+    try:
+        table_name, selector, column = operand.value
+    except (TypeError, ValueError) as exc:
+        raise _error(instruction, "DLOAD requiere tabla, columna de búsqueda y campo.") from exc
+    selector_ref = _resolve_table(
+        instruction, Operand("table_access", (table_name, selector)), context
+    ).resolved
+    value_ref = _resolve_table(
+        instruction, Operand("table_access", (table_name, column)), context
+    ).resolved
+    try:
+        context.tables[table_name].index_for(selector)
+    except ValueError as exc:
+        raise _error(instruction, str(exc)) from exc
+    return replace(operand, resolved=(selector_ref, value_ref))
+
+
+def _resolve_operand(
+    instruction: Instruction,
+    operand: Operand,
+    context: globals.TargetContext,
+    rule_names: frozenset[str],
+) -> Operand:
     if operand.kind == "token":
         return _resolve_token(instruction, operand)
     if operand.kind == "table_access":
-        return _resolve_table(instruction, operand)
+        return _resolve_table(instruction, operand, context)
+    if operand.kind == "table_lookup":
+        return _resolve_table_lookup(instruction, operand, context)
+    if operand.kind == "table_capture":
+        return _resolve_table_capture(instruction, operand, context)
     if operand.kind == "rule":
-        if operand.value not in globals.RULES:
+        if operand.value not in rule_names:
             raise _error(instruction, f"la Rule '{operand.value}' no existe.")
         return replace(operand, resolved=RuleRef(operand.value))
     if operand.kind == "frame":
         rows = tuple(
-            tuple(_resolve_operand(instruction, item) for item in row)
+            tuple(_resolve_operand(instruction, item, context, rule_names) for item in row)
             for row in operand.value
         )
         return replace(operand, value=rows, resolved=rows)
@@ -110,6 +203,8 @@ def _resolve_operand(instruction: Instruction, operand: Operand) -> Operand:
         "reservation_vaddress",
         "reservation_distance",
         "reservation_vdistance",
+        "reservation_width",
+        "reservation_vwidth",
     }:
         if not isinstance(operand.value, str) or not operand.value:
             raise _error(instruction, "el nombre de reserva o etiqueta no es válido.")
@@ -138,10 +233,26 @@ _ARITY: dict[str, tuple[int, int | None]] = {
     "error": (1, 1),
     "call": (1, 1),
     "emitfr": (1, 1),
+    "fits": (1, 1),
+    "iffits": (1, 1),
+    "ifnfits": (1, 1),
+    "vpadding": (1, 1),
+    "vreserve": (2, 2),
+    "dsave": (1, 1),
+    "dload": (1, 1),
+    "dpop": (0, 0),
+    "emitbits": (2, 2),
+    "readbits": (2, 2),
+    "patchbits": (3, 3),
+    "valignement": (1, 1),
 }
 
 
-def _validate_instruction(instruction: Instruction) -> Instruction:
+def _validate_instruction(
+    instruction: Instruction,
+    context: globals.TargetContext,
+    rule_names: frozenset[str],
+) -> Instruction:
     minimum, maximum = _ARITY.get(instruction.opcode, (0, None))
     count = len(instruction.operands)
     if count < minimum or (maximum is not None and count > maximum):
@@ -151,9 +262,19 @@ def _validate_instruction(instruction: Instruction) -> Instruction:
             f"'{instruction.opcode}' requiere {expected} operandos; recibió {count}.",
         )
 
-    operands = tuple(_resolve_operand(instruction, operand) for operand in instruction.operands)
+    operands = tuple(
+        _resolve_operand(instruction, operand, context, rule_names)
+        for operand in instruction.operands
+    )
 
-    if instruction.opcode == "put":
+    if instruction.opcode == "table_matcher":
+        table_ref = operands[0].resolved
+        if isinstance(table_ref, TableRef):
+            try:
+                context.tables[table_ref.table].index_for(table_ref.column)
+            except ValueError as exc:
+                raise _error(instruction, str(exc)) from exc
+    elif instruction.opcode == "put":
         for operand in operands:
             if operand.kind == "number" and operand.width not in {None, 4}:
                 raise _error(instruction, "cada campo de put debe tener exactamente 4 bits.")
@@ -163,47 +284,92 @@ def _validate_instruction(instruction: Instruction) -> Instruction:
                 raise _error(instruction, "cada campo de ebit debe ser 0 o 1.")
     elif instruction.opcode == "emmit":
         operand = operands[0]
-        if operand.kind == "number" and globals.CONFIG is not None:
-            if operand.value >= (1 << globals.CONFIG.wordsize):
+        if operand.kind == "number" and context.config is not None:
+            if operand.value >= (1 << context.config.wordsize):
                 raise _error(
                     instruction,
-                    f"el valor de emmit no cabe en wordsize={globals.CONFIG.wordsize}.",
+                    f"el valor de emmit no cabe en wordsize={context.config.wordsize}.",
                 )
     elif instruction.opcode == "jmpif":
         if operands[1].kind not in {"bool", "call"}:
             raise _error(instruction, "JMPIF requiere BOOL o #call como condición.")
-    elif instruction.opcode == "reserve":
+    elif instruction.opcode in {"reserve", "vreserve"}:
         size = operands[1]
-        if size.kind != "number" or not isinstance(size.value, int) or size.value <= 0:
-            raise _error(instruction, "RESERVE requiere un tamaño entero mayor que cero.")
-    elif instruction.opcode in {"padding", "alignement"}:
+        if size.kind not in {"number", "decimal"} or not isinstance(size.value, int) or size.value <= 0:
+            raise _error(instruction, f"{instruction.opcode.upper()} requiere un tamaño entero mayor que cero.")
+    elif instruction.opcode == "vpadding":
         size = operands[0]
-        if size.kind != "number" or not isinstance(size.value, int) or size.value <= 0:
+        if size.kind not in {"number", "decimal"} or not isinstance(size.value, int) or size.value <= 0:
+            raise _error(instruction, "VPADDING requiere un tamaño entero mayor que cero.")
+    elif instruction.opcode in {"fits", "iffits", "ifnfits"}:
+        space = operands[0]
+        if space.kind in {"number", "decimal"}:
+            if not isinstance(space.value, int) or space.value <= 0 or space.value % 2:
+                raise _error(instruction, "FIT requiere un ancho positivo y múltiplo de dos.")
+        elif space.kind not in {
+            "table_access", "table_lookup", "size", "vsize", "alignment",
+            "data_pop", "data_peek", "data_depth", "reservation_width", "reservation_vwidth",
+        }:
+            raise _error(instruction, "FIT requiere un ancho numérico o un acceso de tabla.")
+    elif instruction.opcode in {"padding", "alignement", "valignement"}:
+        size = operands[0]
+        if size.kind not in {"number", "decimal"} or not isinstance(size.value, int) or size.value <= 0:
             raise _error(
                 instruction,
                 f"{instruction.opcode.upper()} requiere un tamaño entero mayor que cero.",
             )
+    elif instruction.opcode in {"emitbits", "readbits", "patchbits"}:
+        checked = operands[1]
+        if checked.kind in {"number", "decimal"} and (
+            not isinstance(checked.value, int) or checked.value <= 0
+        ):
+            raise _error(instruction, "El ancho de bits debe ser un entero positivo.")
+        if instruction.opcode in {"readbits", "patchbits"}:
+            offset = operands[0]
+            if offset.kind in {"number", "decimal"} and (
+                not isinstance(offset.value, int) or offset.value < 0
+            ):
+                raise _error(instruction, "El offset debe ser un entero no negativo.")
 
     return replace(instruction, operands=operands)
 
 
-def resolve_rule(rule: CompiledRule) -> CompiledRule:
+def resolve_rule(
+    rule: CompiledRule,
+    context: globals.TargetContext | None = None,
+    rule_names: frozenset[str] | None = None,
+) -> CompiledRule:
+    selected_context = context or globals.snapshot_target_context()
+    selected_rules = rule_names or frozenset(globals.RULES)
     return replace(
         rule,
-        instructions=tuple(_validate_instruction(instruction) for instruction in rule.instructions),
+        instructions=tuple(
+            _validate_instruction(instruction, selected_context, selected_rules)
+            for instruction in rule.instructions
+        ),
     )
 
 
 def resolve_program(program: CompiledRuleSet) -> CompiledRuleSet:
     """Resolve names and validate every instruction in a compiled program."""
 
-    return CompiledRuleSet({name: resolve_rule(rule) for name, rule in program.rules.items()})
+    rule_names = frozenset(program.rules)
+    return CompiledRuleSet(
+        {
+            name: resolve_rule(rule, program.context, rule_names)
+            for name, rule in program.rules.items()
+        },
+        inserts=program.inserts,
+        before=program.before,
+        context=program.context,
+    )
 
 
 __all__ = [
     "MIRSemanticError",
     "TokenRef",
     "TableRef",
+    "TableLookupRef",
     "RuleRef",
     "resolve_rule",
     "resolve_program",

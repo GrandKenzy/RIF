@@ -9,6 +9,7 @@ from typing import Iterator, Literal
 
 BitOrder = Literal["msb", "lsb"]
 ByteOrder = Literal["little", "big"]
+MAX_BUFFER_BITS = 1 << 31  # 256 MiB of physical output per section.
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,16 @@ class BitBuffer:
     region resizing impossible during rewrites.
     """
 
-    def __init__(self, layout: BitLayout | None = None) -> None:
+    def __init__(
+        self,
+        layout: BitLayout | None = None,
+        *,
+        max_bits: int = MAX_BUFFER_BITS,
+    ) -> None:
+        if max_bits <= 0:
+            raise ValueError("max_bits debe ser mayor que cero.")
         self.layout = layout or BitLayout()
+        self.max_bits = max_bits
         self._storage = bytearray()
         self._bit_length = 0
         self._regions: dict[str, BitSpan] = {}
@@ -115,6 +124,10 @@ class BitBuffer:
         return byte_index, bit_index
 
     def _ensure_capacity(self, bit_end: int) -> None:
+        if bit_end > self.max_bits:
+            raise ValueError(
+                f"El buffer excede el límite de {self.max_bits} bits."
+            )
         required = (bit_end + 7) // 8
         if required > len(self._storage):
             self._storage.extend(b"\x00" * (required - len(self._storage)))
@@ -149,11 +162,22 @@ class BitBuffer:
         """Append an integer field and return its anonymous span."""
 
         self._check_range(0, width, allocated=False)
-        bits = self._value_bits(value, width)
         offset = self._bit_length
         self._ensure_capacity(offset + width)
+        bits = self._value_bits(value, width)
         for index, bit in enumerate(bits):
             self._write_single(offset + index, bit)
+        self._bit_length += width
+        return BitSpan(offset, width)
+
+    def append_zeros(self, width: int) -> BitSpan:
+        """Append an all-zero range without iterating over individual bits."""
+
+        self._check_range(0, width, allocated=False)
+        if width <= 0:
+            raise ValueError("El ancho debe ser mayor que cero.")
+        offset = self._bit_length
+        self._ensure_capacity(offset + width)
         self._bit_length += width
         return BitSpan(offset, width)
 
@@ -182,6 +206,7 @@ class BitBuffer:
 
         if width <= 0 or width % 8:
             raise ValueError("write_int requiere un ancho positivo múltiplo de 8.")
+        self._check_range(offset, width)
         self._check_value(value, width)
         data = value.to_bytes(width // 8, self.layout.byte_order, signed=False)
         for index, byte in enumerate(data):
@@ -195,8 +220,13 @@ class BitBuffer:
         self._check_value(value, width)
         data = value.to_bytes(width // 8, self.layout.byte_order, signed=False)
         offset = self._bit_length
-        for byte in data:
-            self.append_bits(byte, 8)
+        if offset % 8 == 0:
+            self._ensure_capacity(offset + width)
+            self._storage[offset // 8 : offset // 8 + len(data)] = data
+            self._bit_length += width
+        else:
+            for byte in data:
+                self.append_bits(byte, 8)
         return BitSpan(offset, width)
 
     def read_int(self, offset: int, width: int) -> int:
@@ -216,7 +246,7 @@ class BitBuffer:
             raise ValueError("El nombre de una región no puede estar vacío.")
         if name in self._regions:
             raise ValueError(f"La región '{name}' ya existe.")
-        anonymous = self.append_bits(0, width)
+        anonymous = self.append_zeros(width)
         span = BitSpan(anonymous.offset, anonymous.width, name)
         self._regions[name] = span
         return span
@@ -296,6 +326,23 @@ class BitBuffer:
                 result[-1] &= 0xFF >> unused
         return bytes(result)
 
+    def replace_bytes(self, data: bytes | bytearray | memoryview) -> None:
+        """Replace storage without changing logical length or named regions."""
+
+        replacement = bytes(data)
+        if len(replacement) != self.byte_length:
+            raise ValueError(
+                f"El reemplazo contiene {len(replacement)} bytes; "
+                f"se esperaban {self.byte_length}."
+            )
+        self._storage = bytearray(replacement)
+        if self._bit_length % 8 and self._storage:
+            unused = len(self._storage) * 8 - self._bit_length
+            if self.layout.bit_order == "msb":
+                self._storage[-1] &= (0xFF << unused) & 0xFF
+            else:
+                self._storage[-1] &= 0xFF >> unused
+
     def view(self) -> memoryview:
         """Return a live byte-level view over the backing storage.
 
@@ -315,6 +362,7 @@ __all__ = [
     "BitOrder",
     "ByteOrder",
     "BitLayout",
+    "MAX_BUFFER_BITS",
     "BitSpan",
     "BitQuery",
     "BitCheckpoint",

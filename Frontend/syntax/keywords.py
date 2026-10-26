@@ -7,45 +7,26 @@ config.SUPPORT_INDENT = False
 
 word = lexer.words
 word.add_group("keywords")
-word.add_keyword("table", group="keywords")
-word.add_keyword("end", group="keywords")
-word.add_keyword("define", group="keywords")
-word.add_keyword("rule", group="keywords")
-word.add_keyword("put", group="keywords")
-word.add_keyword("ebit", group="keywords")
-word.add_keyword("emmit", group="keywords")
-word.add_keyword("KW", group="keywords")
-word.add_keyword("JMP", group="keywords")
-word.add_keyword("stack", group="keywords")
-word.add_keyword("save", group="keywords")
-word.add_keyword("load", group="keywords")
-word.add_keyword("reserve", group="keywords")
-word.add_keyword("ldres", group="keywords")
-word.add_keyword("dlres", group="keywords")
-word.add_keyword("gtres", group="keywords")
-word.add_keyword("jmpif", group="keywords")
-word.add_keyword("call", group="keywords")
-word.add_keyword("CALL", group="keywords")
-word.add_keyword("break", group="keywords")
-word.add_keyword("error", group="keywords")
-word.add_keyword("emitfr", group="keywords")
-word.add_keyword("emitfrend", group="keywords")
-word.add_keyword("padding", group="keywords")
-word.add_keyword("alignement", group="keywords")
-word.add_keyword("dist", group="keywords")
-word.add_keyword("vdist", group="keywords")
-word.add_keyword("resdir", group="keywords")
-word.add_keyword("resvdir", group="keywords")
-word.add_keyword("resdist", group="keywords")
-word.add_keyword("resvdist", group="keywords")
-word.add_keyword("SIZE", group="keywords")
-word.add_keyword("VSIZE", group="keywords")
-word.add_keyword("ALIGNMENT", group="keywords")
-word.add_keyword("config", group="keywords")
-word.add_keyword("configend", group="keywords")
-word.add_keyword("linker", group="keywords")
-word.add_keyword("linkerend", group="keywords")
-word.add_keyword("LOAD", group="keywords")
+INSTRUCTION_OPCODES = {
+    name: name
+    for name in (
+        "put", "ebit", "emmit", "save", "load", "reserve", "ldres",
+        "dlres", "gtres", "jmpif", "break", "error", "emitfr",
+        "padding", "alignement", "fits", "iffits", "ifnfits",
+        "vpadding", "vreserve", "dsave", "dload", "dpop",
+        "emitbits", "readbits", "patchbits", "valignement",
+    )
+}
+INSTRUCTION_OPCODES.update({"KW": "kw", "JMP": "jmp", "CALL": "call"})
+for keyword in (
+    "table", "end", "define", "rule", "stack", "call", "emitfrend",
+    "insert", "before",
+    "dpeek", "reswidth", "vreswidth", "DDEPTH", "dist", "vdist",
+    "resdir", "resvdir", "resdist", "resvdist", "SIZE", "VSIZE",
+    "ALIGNMENT", "config", "configend", "linker", "linkerend", "LOAD",
+    *INSTRUCTION_OPCODES,
+):
+    word.add_keyword(keyword, group="keywords")
 word.add_group("variant_keywords")
 word.add_keyword("SUPPORTS", group="variant_keywords")
 word.add_keyword("ASMVARIANT", group="variant_keywords")

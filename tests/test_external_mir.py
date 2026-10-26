@@ -126,6 +126,89 @@ class ExternalMIRTests(unittest.TestCase):
 
             self.assertEqual(result.binary, b"\x01")
 
+    def test_precompiled_pack_resolves_insert_file_assets(self) -> None:
+        target_source = TARGET.replace(
+            '@rule mov:',
+            '@insert:\n.file "payload.bin"\n@end\n\n@rule mov:',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            package = root / "target.pack"
+            source = root / "program.asm"
+            target.write_text(target_source, encoding="utf-8")
+            (root / "payload.bin").write_bytes(b"\x10\x20")
+            source.write_text("mov\n", encoding="utf-8")
+            create_pack(target, package, precompile=True)
+
+            with PackReader(package) as reader:
+                self.assertEqual(reader.assets(), {"payload.bin": b"\x10\x20"})
+            result = compile_mir_file(package, source)
+
+            self.assertEqual(result.binary, b"\x10\x20\x01")
+
+    def test_precompiled_pack_preserves_indexed_fits_and_virtual_space(self) -> None:
+        target_source = TARGET.replace(
+            '@rule mov:\n-> IDENT\n-> emmit 1\n',
+            '@table registers\n'
+            '| names | bits |\n'
+            '_\n'
+            '| rax | 16 |\n'
+            '@end\n\n'
+            '@rule mov:\n'
+            '-> IDENT\n'
+            '-> fits $registers.names[rax].bits\n'
+            '-> vpadding 8\n',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            package = root / "target.pack"
+            source = root / "program.asm"
+            target.write_text(target_source, encoding="utf-8")
+            source.write_text("mov 1282\n", encoding="utf-8")
+            create_pack(target, package, precompile=True)
+
+            result = compile_mir_file(package, source)
+
+            self.assertEqual(result.binary, b"\x02\x05")
+            self.assertEqual(result.context.virtual_position, 24)
+
+    def test_datastack_capture_survives_mir_lines_and_precompiled_pack(self) -> None:
+        target_source = TARGET.replace(
+            '@rule mov:\n-> IDENT\n-> emmit 1\n',
+            '@table registers\n'
+            '| names | bits |\n'
+            '_\n'
+            '| rax | 8 |\n'
+            '_\n'
+            '| rbx | 8 |\n'
+            '@end\n\n'
+            '@rule capture:\n'
+            '-> IDENT\n'
+            '-> dload ::registers.names : bits\n'
+            '@rule emit:\n'
+            '-> IDENT\n'
+            '-> fits dload\n',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            package = root / "target.pack"
+            source = root / "program.asm"
+            target.write_text(target_source, encoding="utf-8")
+            source.write_text("capture rax\nemit 258\n", encoding="utf-8")
+
+            direct = compile_mir_source(compile_definition(target), source.read_text(encoding="utf-8"))
+            self.assertEqual(direct.binary, b"\x02")
+            self.assertEqual(direct.context.datastack, [])
+            self.assertEqual(direct.program.context.tables["registers"].indexes.keys(), {"names"})
+
+            create_pack(target, package, precompile=True)
+            packed = compile_mir_file(package, source)
+            self.assertEqual(packed.binary, direct.binary)
+            self.assertEqual(packed.context.datastack, [])
+
     def test_funcs_py_is_loaded_from_a_precompiled_pack(self) -> None:
         target_source = TARGET.replace(
             '@rule mov:\n-> IDENT\n-> emmit 1\n',
@@ -200,7 +283,7 @@ def handler(name, context):
     assert context.config.wordsize == 8
     assert context.coder is context.machine.emitter
     from Frontend import globals as rif_globals
-    assert context.tables is rif_globals.TABLES
+    assert context.tables is not rif_globals.TABLES
     assert context.tables["registers"].matrix[0][0] == "mov"
     if name == "value":
         return "00000010"
@@ -255,8 +338,10 @@ def handler(name, context):
             target.write_text(TARGET, encoding="utf-8")
             (root / "funcs.py").write_text("VALUE = True\n", encoding="utf-8")
 
+            prepared = prepare_target(target)
+            self.assertFalse(prepared.function_module.loaded)
             with self.assertRaises(RIFFunctionError):
-                prepare_target(target)
+                _ = prepared.function_module.handler
 
     def test_cli_uses_the_same_binary_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

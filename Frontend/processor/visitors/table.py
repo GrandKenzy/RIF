@@ -6,7 +6,7 @@ from typing import Any
 from Frontend import globals
 
 
-_VALUE_KINDS = {"NUMBER", "IDENT", "STRING", "BOOL"}
+_VALUE_KINDS = {"NUMBER", "DECIMAL", "IDENT", "STRING", "BOOL"}
 
 
 def _children(node: Any) -> tuple[Any, ...]:
@@ -75,7 +75,7 @@ def _cell_value(cell: Any) -> Any:
     )
     if len(leaves) != 1:
         raise RuntimeError(
-            "Las tablas solo pueden contener valores literales NUMBER, IDENT, "
+            "Las tablas solo pueden contener valores literales NUMBER, DECIMAL, IDENT, "
             "STRING o BOOL."
         )
     return _token_value(leaves[0])
@@ -109,7 +109,6 @@ def visit(node: Any) -> None:
     headers = _headers(header_refs[0])
     matrix = _rows(node, len(headers))
     columns = {column: index for index, column in enumerate(headers)}
-
     globals.TABLES[name] = globals.TableData(
         name=name,
         headers=headers,
