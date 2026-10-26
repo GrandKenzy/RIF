@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+from Frontend import globals as rif_globals
+from MIR import compile_project, compile_source
+
+
+def reset_globals() -> None:
+    rif_globals.STACK = None
+    rif_globals.STACK_SIZE = None
+    rif_globals.DEFINES.clear()
+    rif_globals.TABLES.clear()
+    rif_globals.RULES.clear()
+    rif_globals.CONFIG = None
+    rif_globals.LINKER = None
+    rif_globals.SUPPORTS.clear()
+    rif_globals.ASM_VARIANTS.clear()
+    rif_globals.LOADED_SOURCES.clear()
+    rif_globals.ACTIVE_SOURCES.clear()
+    rif_globals.VARIANT_STACK.clear()
+
+
+class PipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_globals()
+
+    def tearDown(self) -> None:
+        reset_globals()
+
+    def test_compile_source_runs_the_full_frontend_pipeline(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "main.rif"
+        program = compile_source(root)
+
+        self.assertEqual(set(program.rules), {"mov", "add", "ret"})
+        self.assertIsNotNone(rif_globals.CONFIG)
+        self.assertEqual(rif_globals.CONFIG.sections, ("data", "text", "bss"))
+
+    def test_assembly_image_renders_configured_sections_and_bytes(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "main.rif"
+        compilation = compile_project(root)
+        emitter = compilation.image.emitter("text")
+        emitter.put("1010", "0101")
+
+        output = compilation.image.render()
+
+        self.assertIn(".section text:", output)
+        self.assertIn("_start:", output)
+        self.assertIn(".byte 0xa5", output)
+        self.assertNotIn(".section data:", output)
+
+
+if __name__ == "__main__":
+    unittest.main()

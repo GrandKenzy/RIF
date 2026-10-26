@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+
+from pack import PackReader, create_pack, read_pack
+from rif import main as rif_main
+
+
+class PackTests(unittest.TestCase):
+    def test_pack_contains_all_rif_sources_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            nested = root / "variants" / "thumb.rif"
+            table = root / "tables" / "registers.rif"
+            nested.parent.mkdir()
+            table.parent.mkdir()
+            main.write_text('@LOAD "tables/registers.rif"\n', encoding="utf-8")
+            nested.write_text("@define thumb\n", encoding="utf-8")
+            table.write_text("@define registers\n", encoding="utf-8")
+
+            package = create_pack(main)
+            manifest = read_pack(package)
+
+            self.assertEqual(package, root / "main.pack")
+            self.assertEqual(manifest.entrypoint, "sources/main.rif")
+            self.assertEqual(
+                {entry.path for entry in manifest.files},
+                {
+                    "sources/main.rif",
+                    "sources/tables/registers.rif",
+                    "sources/variants/thumb.rif",
+                },
+            )
+            self.assertEqual(
+                manifest.load_graph["sources/main.rif"],
+                ("sources/tables/registers.rif",),
+            )
+            self.assertEqual(
+                manifest.dependency_order,
+                (
+                    "sources/tables/registers.rif",
+                    "sources/main.rif",
+                    "sources/variants/thumb.rif",
+                ),
+            )
+            with zipfile.ZipFile(package) as archive:
+                self.assertEqual(
+                    set(archive.namelist()),
+                    {"manifest.json", *{entry.path for entry in manifest.files}},
+                )
+
+            with PackReader(package) as reader:
+                self.assertEqual(reader.source_bytes(), main.read_bytes())
+                self.assertEqual(
+                    reader.dependencies(), ("sources/tables/registers.rif",)
+                )
+                self.assertEqual(reader.ordered_sources(), manifest.dependency_order)
+
+    def test_pack_is_reproducible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            main.write_text("@define main\n", encoding="utf-8")
+            first = create_pack(main, root / "first.pack").read_bytes()
+            second = create_pack(main, root / "second.pack").read_bytes()
+
+            self.assertEqual(first, second)
+
+    def test_read_pack_detects_tampered_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            main.write_text("@define main\n", encoding="utf-8")
+            package = create_pack(main)
+            rewritten = root / "tampered.pack"
+            with zipfile.ZipFile(package, "r") as source, zipfile.ZipFile(
+                rewritten, "w", compression=zipfile.ZIP_DEFLATED
+            ) as target:
+                for info in source.infolist():
+                    data = source.read(info.filename)
+                    if info.filename == "sources/main.rif":
+                        data = b"@define changed\n"
+                    target.writestr(info, data)
+
+            with self.assertRaises(ValueError):
+                read_pack(rewritten)
+
+    def test_pack_rejects_missing_load_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            main.write_text('@LOAD "missing.rif"\n', encoding="utf-8")
+
+            with self.assertRaises(FileNotFoundError):
+                create_pack(main)
+
+    def test_pack_rejects_load_cycles_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            other = root / "other.rif"
+            main.write_text('@LOAD "other.rif"\n', encoding="utf-8")
+            other.write_text('@LOAD "main.rif"\n', encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                create_pack(main)
+
+    def test_cli_pack_accepts_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            output = root / "amd64.pack"
+            main.write_text("@define main\n", encoding="utf-8")
+
+            self.assertEqual(rif_main(["--pack", str(main), "--output", str(output)]), 0)
+            self.assertTrue(output.is_file())
+            self.assertEqual(read_pack(output).entrypoint, "sources/main.rif")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -79,6 +79,48 @@ class DeclarationTests(unittest.TestCase):
         self.assertIsNotNone(ast)
         self.assertEqual(len(ast), 3)
 
+    def test_config_can_share_entrypoint(self) -> None:
+        ast = self.parse(
+            "@config:\n"
+            '.sectiondef ".section"\n'
+            '.make section "data"\n'
+            '.sectionend ":"\n'
+            '.entrysection "data"\n'
+            '.entrylabel "_start"\n'
+            '.comment ";"\n'
+            '.labelend ":"\n'
+            '.datasection "data"\n'
+            '.defaultsection "data"\n'
+            '.wordsize 32\n'
+            '.addresssize 32\n'
+            '.endianess "little"\n'
+            '.casesensitive true\n'
+            '.symbolprefix "_"\n'
+            '.localprefix "."\n'
+            '.undefinedsymbols "error"\n'
+            '.duplicateSymbols "error"\n'
+            '.strict true\n'
+            '.allowemptysections false\n'
+            "@configend\n"
+        )
+
+        self.assertIsNotNone(ast)
+        self.assertEqual(len(ast), 1)
+        self.assertEqual(ast[0].name, "CONFIG")
+
+    def test_linker_can_share_entrypoint(self) -> None:
+        ast = self.parse(
+            "@linker:\n"
+            '.ext ".asm"\n'
+            '.name "main"\n'
+            '.searching "lib"\n'
+            "@linkerend\n"
+        )
+
+        self.assertIsNotNone(ast)
+        self.assertEqual(len(ast), 1)
+        self.assertEqual(ast[0].name, "LINKER")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,22 +1,110 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
+from Frontend import globals
+from .visitors.config import visit as visit_config
+from .visitors.define import visit as visit_define
+from .visitors.linker import visit as visit_linker
+from .visitors.rule import visit as visit_rule
 from .visitors.stack import visit as visit_stack
+from .visitors.table import visit as visit_table
+from .visitors.variant import visit_support, visit_variant
+from .sources import load_source
+from .variants import current_variant, enter_variant, exit_variant, load_variants as _load_variants
 
 
-def process(result: Iterable[Any] | None) -> None:
+def process(
+    result: Iterable[Any] | None,
+    source_path: str | Path | None = None,
+    *,
+    load_variants: bool = True,
+    scope: str = "root",
+) -> None:
     """Recorre y despacha cada nodo producido por el parser."""
     if result is None:
         return
 
-    for node in result:
-        name = getattr(node, "name", type(node).__name__)
-        if name == "STACK":
-            visit_stack(node)
-        else:
-            print("falta por procesar", name)
+    nodes = list(result)
+    source_key = str(Path(source_path).expanduser().resolve(strict=False)) if source_path else None
+    owns_source = bool(source_key and source_key not in globals.ACTIVE_SOURCES)
+    if owns_source:
+        globals.ACTIVE_SOURCES.append(source_key)
+
+    try:
+        allowed = {
+            "root": {
+                "CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT",
+                "TABLE", "STACK", "RULE", "LOAD_FILE",
+            },
+            "include": {"DEFINE", "TABLE", "RULE", "LOAD_FILE"},
+            "variant": {"DEFINE", "RULE"},
+        }
+        try:
+            allowed_names = allowed[scope]
+        except KeyError as exc:
+            raise ValueError(f"Alcance de procesamiento desconocido: {scope}") from exc
+        forbidden = {
+            getattr(node, "name", type(node).__name__)
+            for node in nodes
+            if getattr(node, "name", type(node).__name__) not in allowed_names
+        }
+        if forbidden:
+            names = ", ".join(sorted(forbidden))
+            raise RuntimeError(
+                f"El alcance '{scope}' no permite estas declaraciones: {names}."
+            )
+
+        # La configuración, el linker, los labels y los soportes se registran
+        # antes de resolver tablas u otras referencias, sin depender del orden.
+        for node in nodes:
+            name = getattr(node, "name", type(node).__name__)
+            if name == "CONFIG":
+                visit_config(node)
+            elif name == "LINKER":
+                visit_linker(node)
+            elif name == "DEFINE":
+                visit_define(node)
+            elif name == "SUPPORTS":
+                visit_support(node)
+
+        for node in nodes:
+            if getattr(node, "name", type(node).__name__) == "ASMVARIANT":
+                visit_variant(node)
+
+        for node in nodes:
+            name = getattr(node, "name", type(node).__name__)
+            if name in {"CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT"}:
+                continue
+            if name == "TABLE":
+                visit_table(node)
+            elif name == "STACK":
+                visit_stack(node)
+            elif name == "RULE":
+                visit_rule(node, source_path=source_key)
+            elif name == "LOAD_FILE":
+                load_source(node, source_key, scope="include")
+            else:
+                print("falta por procesar", name)
+
+        if load_variants and source_key:
+            _load_variants(source_key)
+    finally:
+        if owns_source and source_key in globals.ACTIVE_SOURCES:
+            globals.ACTIVE_SOURCES.remove(source_key)
 
 
-__all__ = ["process"]
+__all__ = [
+    "process",
+    "load_variants",
+    "load_source",
+    "enter_variant",
+    "exit_variant",
+    "current_variant",
+]
+
+# API pública con el nombre previsto por el plan; el alias interno evita que
+# el parámetro ``load_variants`` de process oculte la función importada.
+load_variants = _load_variants

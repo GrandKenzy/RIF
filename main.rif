@@ -1,5 +1,41 @@
 ; Proyecto demostrativo de RIF
 
+@config:
+.sectiondef ".section"
+.make section "data"
+.make section "text"
+.make section "bss"
+.sectionend ":"
+.entrysection "text"
+.entrylabel "_start"
+.comment ";"
+.labelend ":"
+.datasection "data"
+.defaultsection "text"
+.sectionflags "text" "rx"
+.sectionflags "data" "rw"
+.sectionflags "bss" "rw"
+.sectionalign "text" 4
+.sectionalign "data" 4
+.sectionalign "bss" 4
+.wordsize 32
+.addresssize 32
+.endianess "little"
+.casesensitive true
+.symbolprefix "_"
+.localprefix "."
+.undefinedsymbols "error"
+.duplicateSymbols "error"
+.strict true
+.allowemptysections false
+@configend
+
+@linker:
+.ext ".asm"
+.name "main"
+.searching ""
+@linkerend
+
 @stack 50
 
 @table registers

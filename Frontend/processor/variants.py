@@ -1,0 +1,164 @@
+"""Carga y controla las variantes ISA declaradas por un programa RIF.
+
+Las variantes se procesan en el mismo contexto global que el archivo raíz. El
+archivo de una variante solamente añade ``@define`` y ``@rule``; no crea un
+segundo ``Session`` ni un segundo espacio semántico.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from Frontend import globals
+
+
+def canonical_path(path: str | Path) -> str:
+    """Devuelve una ruta estable para detectar archivos repetidos y ciclos."""
+
+    return str(Path(path).expanduser().resolve(strict=False))
+
+
+def _root_directory(root_path: Path) -> Path:
+    """Obtiene el directorio base desde el que se resuelven variantes."""
+
+    if root_path.exists() and root_path.is_dir():
+        return root_path
+    return root_path.parent
+
+
+def resolve_variant(name: str, root_path: str | Path) -> Path:
+    """Resuelve ``<name>.rif`` respetando ``.searching`` del linker."""
+
+    root = Path(root_path).expanduser()
+    linker = globals.LINKER
+    searching: str | bool = ""
+    if linker is not None:
+        searching = linker.searching
+
+    if searching is False:
+        raise RuntimeError(
+            f"El linker deshabilita la carga automática; no se puede cargar la variante '{name}'."
+        )
+
+    directory = _root_directory(root)
+    if isinstance(searching, str) and searching:
+        directory = directory / searching
+    return Path(canonical_path(directory / f"{name}.rif"))
+
+
+def _load_variant(variant: globals.AsmVariantData, root_path: Path) -> None:
+    """Carga recursivamente el archivo asociado a una variante."""
+
+    path = resolve_variant(variant.name, root_path)
+    path_key = canonical_path(path)
+
+    if path_key in globals.ACTIVE_SOURCES:
+        cycle = " -> ".join((*globals.ACTIVE_SOURCES, path_key))
+        raise RuntimeError(f"Ciclo de variantes detectado: {cycle}")
+    if path_key in globals.LOADED_SOURCES:
+        return
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No se encontró el archivo de la variante '{variant.name}': {path}"
+        )
+
+    # Importaciones locales para evitar un ciclo: processor importa este
+    # módulo y el cargador, a su vez, necesita el entrypoint del processor.
+    from Frontend import RIF_LANG_SESSION
+    from . import process
+
+    globals.ACTIVE_SOURCES.append(path_key)
+    try:
+        source = path.read_text(encoding="utf-8")
+        RIF_LANG_SESSION.load()
+        tokens = RIF_LANG_SESSION.tokenize(source, path_key)
+        ast = RIF_LANG_SESSION.parse(tokens, path_key)
+        process(ast, source_path=path_key, load_variants=False, scope="variant")
+        globals.LOADED_SOURCES[path_key] = variant.name
+    finally:
+        if globals.ACTIVE_SOURCES and globals.ACTIVE_SOURCES[-1] == path_key:
+            globals.ACTIVE_SOURCES.pop()
+        elif path_key in globals.ACTIVE_SOURCES:
+            globals.ACTIVE_SOURCES.remove(path_key)
+
+
+def validate_variant_rules() -> None:
+    """Verifica que las Rules de entrada y salida estén disponibles."""
+
+    for variant in globals.ASM_VARIANTS.values():
+        missing = [
+            rule
+            for rule in (variant.enter_rule, variant.exit_rule)
+            if rule not in globals.RULES
+        ]
+        if missing:
+            raise RuntimeError(
+                f"La variante '{variant.name}' referencia Rules inexistentes: "
+                + ", ".join(missing)
+            )
+
+
+def load_variants(root_path: str | Path) -> None:
+    """Carga todos los archivos de variantes y valida sus reglas."""
+
+    root = Path(root_path).expanduser()
+    root_key = canonical_path(root)
+    if root_key not in globals.LOADED_SOURCES:
+        globals.LOADED_SOURCES[root_key] = "root"
+
+    for variant in tuple(globals.ASM_VARIANTS.values()):
+        _load_variant(variant, root)
+    validate_variant_rules()
+
+
+def enter_variant(
+    name: str,
+    source_path: str | Path,
+    token_position: int,
+    return_rule: str | None = None,
+) -> globals.VariantFrame:
+    """Abre un frame de variante conservando el contexto global."""
+
+    try:
+        variant = globals.ASM_VARIANTS[name]
+    except KeyError as exc:
+        raise KeyError(f"Variante ISA desconocida: {name}") from exc
+    frame = globals.VariantFrame(
+        variant=variant,
+        source_path=canonical_path(source_path),
+        return_rule=return_rule,
+        token_position=token_position,
+    )
+    globals.VARIANT_STACK.append(frame)
+    return frame
+
+
+def exit_variant(expected: str | None = None) -> globals.VariantFrame:
+    """Cierra el frame actual y comprueba opcionalmente su nombre."""
+
+    if not globals.VARIANT_STACK:
+        raise RuntimeError("No hay una variante activa para cerrar.")
+    frame = globals.VARIANT_STACK.pop()
+    if expected is not None and frame.variant.name != expected:
+        raise RuntimeError(
+            f"Se intentó cerrar '{expected}', pero la variante activa es "
+            f"'{frame.variant.name}'."
+        )
+    return frame
+
+
+def current_variant() -> globals.VariantFrame | None:
+    """Devuelve el frame activo sin modificar el stack."""
+
+    return globals.VARIANT_STACK[-1] if globals.VARIANT_STACK else None
+
+
+__all__ = [
+    "canonical_path",
+    "resolve_variant",
+    "load_variants",
+    "validate_variant_rules",
+    "enter_variant",
+    "exit_variant",
+    "current_variant",
+]
