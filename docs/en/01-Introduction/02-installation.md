@@ -30,7 +30,6 @@ For development, the workspace normally contains:
 
 ```text
 RIF/
-├── Backend/
 ├── Frontend/
 │   ├── globals.py
 │   ├── syntax/

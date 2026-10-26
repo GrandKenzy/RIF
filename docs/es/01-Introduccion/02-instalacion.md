@@ -29,7 +29,6 @@ La estructura normal es:
 
 ```text
 RIF/
-├── Backend/
 ├── Frontend/
 │   ├── globals.py
 │   ├── syntax/
