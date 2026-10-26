@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
@@ -70,6 +71,55 @@ class PackTests(unittest.TestCase):
             second = create_pack(main, root / "second.pack").read_bytes()
 
             self.assertEqual(first, second)
+
+            compiled_first = create_pack(
+                main,
+                root / "compiled-first.pack",
+                precompile=True,
+            ).read_bytes()
+            compiled_second = create_pack(
+                main,
+                root / "compiled-second.pack",
+                precompile=True,
+            ).read_bytes()
+            self.assertEqual(compiled_first, compiled_second)
+
+    def test_precompiled_pack_stores_tables_in_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            main.write_text(
+                "@table registers\n"
+                "| name | opcode |\n"
+                "_\n"
+                '| "mov" | 1 |\n'
+                "@end\n"
+                "@rule sample:\n"
+                "-> $registers.opcode, NUMBER\n",
+                encoding="utf-8",
+            )
+            package = create_pack(main, precompile=True)
+
+            with PackReader(package) as reader:
+                database = reader.compiled_database()
+                self.assertIsNotNone(database)
+                connection = sqlite3.connect(":memory:")
+                try:
+                    connection.deserialize(database)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT headers_json FROM table_defs WHERE name = 'registers'"
+                        ).fetchone()[0],
+                        '["name", "opcode"]',
+                    )
+                    row = connection.execute(
+                        "SELECT values_json FROM table_rows "
+                        "WHERE table_name = 'registers' AND row_index = 0"
+                    ).fetchone()
+                    self.assertIsNotNone(row)
+                    self.assertIn("mov", row[0])
+                finally:
+                    connection.close()
 
     def test_read_pack_detects_tampered_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

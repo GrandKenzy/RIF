@@ -22,13 +22,27 @@ def process(
     *,
     load_variants: bool = True,
     scope: str = "root",
+    source_provider: Any | None = None,
 ) -> None:
     """Recorre y despacha cada nodo producido por el parser."""
     if result is None:
         return
 
     nodes = list(result)
-    source_key = str(Path(source_path).expanduser().resolve(strict=False)) if source_path else None
+    provider = source_provider if source_provider is not None else globals.SOURCE_PROVIDER
+    raw_source = str(source_path) if source_path is not None else ""
+    if raw_source.startswith("pack://"):
+        source_key = raw_source
+    else:
+        source_key = (
+            str(Path(source_path).expanduser().resolve(strict=False))
+            if source_path
+            else None
+        )
+    previous_provider = globals.SOURCE_PROVIDER
+    owns_provider = source_provider is not None and previous_provider is not source_provider
+    if owns_provider:
+        globals.SOURCE_PROVIDER = source_provider
     owns_source = bool(source_key and source_key not in globals.ACTIVE_SOURCES)
     if owns_source:
         globals.ACTIVE_SOURCES.append(source_key)
@@ -85,15 +99,22 @@ def process(
             elif name == "RULE":
                 visit_rule(node, source_path=source_key)
             elif name == "LOAD_FILE":
-                load_source(node, source_key, scope="include")
+                load_source(
+                    node,
+                    source_key,
+                    scope="include",
+                    source_provider=provider,
+                )
             else:
                 print("falta por procesar", name)
 
         if load_variants and source_key:
-            _load_variants(source_key)
+            _load_variants(source_key, source_provider=provider)
     finally:
         if owns_source and source_key in globals.ACTIVE_SOURCES:
             globals.ACTIVE_SOURCES.remove(source_key)
+        if owns_provider:
+            globals.SOURCE_PROVIDER = previous_provider
 
 
 __all__ = [

@@ -46,18 +46,27 @@ def resolve_variant(name: str, root_path: str | Path) -> Path:
     return Path(canonical_path(directory / f"{name}.rif"))
 
 
-def _load_variant(variant: globals.AsmVariantData, root_path: Path) -> None:
+def _load_variant(
+    variant: globals.AsmVariantData,
+    root_path: Path | str,
+    source_provider=None,
+) -> None:
     """Carga recursivamente el archivo asociado a una variante."""
 
-    path = resolve_variant(variant.name, root_path)
-    path_key = canonical_path(path)
+    if source_provider is not None:
+        searching = globals.LINKER.searching if globals.LINKER is not None else ""
+        path_key = source_provider.resolve_variant(variant.name, searching)
+        path = None
+    else:
+        path = resolve_variant(variant.name, root_path)
+        path_key = canonical_path(path)
 
     if path_key in globals.ACTIVE_SOURCES:
         cycle = " -> ".join((*globals.ACTIVE_SOURCES, path_key))
         raise RuntimeError(f"Ciclo de variantes detectado: {cycle}")
     if path_key in globals.LOADED_SOURCES:
         return
-    if not path.is_file():
+    if path is not None and not path.is_file():
         raise FileNotFoundError(
             f"No se encontró el archivo de la variante '{variant.name}': {path}"
         )
@@ -69,11 +78,21 @@ def _load_variant(variant: globals.AsmVariantData, root_path: Path) -> None:
 
     globals.ACTIVE_SOURCES.append(path_key)
     try:
-        source = path.read_text(encoding="utf-8")
+        source = (
+            source_provider.source_text(path_key)
+            if source_provider is not None
+            else path.read_text(encoding="utf-8")
+        )
         RIF_LANG_SESSION.load()
         tokens = RIF_LANG_SESSION.tokenize(source, path_key)
         ast = RIF_LANG_SESSION.parse(tokens, path_key)
-        process(ast, source_path=path_key, load_variants=False, scope="variant")
+        process(
+            ast,
+            source_path=path_key,
+            load_variants=False,
+            scope="variant",
+            source_provider=source_provider,
+        )
         globals.LOADED_SOURCES[path_key] = variant.name
     finally:
         if globals.ACTIVE_SOURCES and globals.ACTIVE_SOURCES[-1] == path_key:
@@ -98,7 +117,7 @@ def validate_variant_rules() -> None:
             )
 
 
-def load_variants(root_path: str | Path) -> None:
+def load_variants(root_path: str | Path, source_provider=None) -> None:
     """Carga todos los archivos de variantes y valida sus reglas."""
 
     root = Path(root_path).expanduser()
@@ -107,7 +126,7 @@ def load_variants(root_path: str | Path) -> None:
         globals.LOADED_SOURCES[root_key] = "root"
 
     for variant in tuple(globals.ASM_VARIANTS.values()):
-        _load_variant(variant, root)
+        _load_variant(variant, root, source_provider=source_provider)
     validate_variant_rules()
 
 

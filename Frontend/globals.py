@@ -119,6 +119,10 @@ LOADED_SOURCES: dict[str, str] = {}
 ACTIVE_SOURCES: list[str] = []
 VARIANT_STACK: list[VariantFrame] = []
 
+# Proveedor opcional de fuentes empaquetadas. Permite que @LOAD y las
+# variantes lean desde un .pack sin volver al filesystem.
+SOURCE_PROVIDER: Any | None = None
+
 __all__ = [
     "STACK",
     "STACK_SIZE",
@@ -139,4 +143,5 @@ __all__ = [
     "LOADED_SOURCES",
     "ACTIVE_SOURCES",
     "VARIANT_STACK",
+    "SOURCE_PROVIDER",
 ]

@@ -14,6 +14,11 @@ from .instructions import Instruction, Operand, ProgramIR, RuleIR, SourceSpan
 
 _VALUE_KINDS = {"NUMBER", "IDENT", "STRING", "BOOL"}
 
+# Fuentes virtuales cargadas desde un .pack. Gram conserva el valor numérico
+# ya convertido, pero el MIR también necesita el lexema original (por ejemplo,
+# ``0000``) para conservar anchos explícitos.
+SOURCE_TEXTS: dict[str, str] = {}
+
 
 def _children(node: Any) -> tuple[Any, ...]:
     if isinstance(node, (list, tuple)):
@@ -57,10 +62,13 @@ def _source_lexeme(node: Any, source_path: str | None) -> str | None:
     column = getattr(token, "col", None)
     if not source_path or not isinstance(line, int) or not isinstance(column, int):
         return str(getattr(token, "value", ""))
-    path = Path(source_path)
-    if not path.is_file():
-        return str(getattr(token, "value", ""))
-    lines = path.read_text(encoding="utf-8").splitlines()
+    if source_path in SOURCE_TEXTS:
+        lines = SOURCE_TEXTS[source_path].splitlines()
+    else:
+        path = Path(source_path)
+        if not path.is_file():
+            return str(getattr(token, "value", ""))
+        lines = path.read_text(encoding="utf-8").splitlines()
     if line <= 0 or line > len(lines):
         return str(getattr(token, "value", ""))
     remainder = lines[line - 1][column:]

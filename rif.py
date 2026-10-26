@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("debes indicar una operación, por ejemplo: rif --pack main.rif")
 
     try:
-        output = create_pack(Path(args.pack), args.output)
+        output = create_pack(Path(args.pack), args.output, precompile=True)
     except (FileNotFoundError, OSError, ValueError) as exc:
         print(f"rif: error: {exc}", file=sys.stderr)
         return 1

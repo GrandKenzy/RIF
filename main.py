@@ -22,7 +22,7 @@ def main() -> int:
                 return 2
             output = arguments[3]
         try:
-            print(create_pack(arguments[1], output))
+            print(create_pack(arguments[1], output, precompile=True))
         except (FileNotFoundError, OSError, ValueError) as exc:
             print(f"Error al crear el paquete: {exc}", file=sys.stderr)
             return 1

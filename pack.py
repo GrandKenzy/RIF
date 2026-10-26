@@ -1,9 +1,9 @@
 """Formato y creación de paquetes fuente ``.pack`` de RIF.
 
 Un paquete ``.pack`` es un ZIP reproducible que contiene todos los archivos
-``.rif`` del directorio del proyecto bajo ``sources/`` y un manifiesto JSON.
-Todavía no contiene MIR compilado: su propósito es transportar el proyecto
-RIF completo para la siguiente fase del compilador.
+``.rif`` del directorio del proyecto bajo ``sources/``, un manifiesto JSON y,
+cuando se crea con ``precompile=True``, una base SQLite con el MIR y el
+contexto ya resueltos.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 import re
 import tempfile
 import zipfile
@@ -46,6 +47,7 @@ class PackManifest:
     files: tuple[PackEntry, ...]
     load_graph: dict[str, tuple[str, ...]]
     dependency_order: tuple[str, ...]
+    compiled: PackEntry | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -68,6 +70,15 @@ class PackManifest:
                 for path, dependencies in sorted(self.load_graph.items())
             },
             "dependency_order": list(self.dependency_order),
+            "compiled": (
+                {
+                    "path": self.compiled.path,
+                    "size": self.compiled.size,
+                    "sha256": self.compiled.sha256,
+                }
+                if self.compiled is not None
+                else None
+            ),
         }
 
     @classmethod
@@ -121,6 +132,24 @@ class PackManifest:
         ):
             raise ValueError("El manifiesto contiene un índice de LOAD inválido.")
 
+        raw_compiled = data.get("compiled")
+        compiled = None
+        if raw_compiled is not None:
+            if not isinstance(raw_compiled, dict):
+                raise ValueError("El manifiesto contiene metadata compilada inválida.")
+            compiled_path = raw_compiled.get("path")
+            compiled_size = raw_compiled.get("size")
+            compiled_sha256 = raw_compiled.get("sha256")
+            if (
+                not isinstance(compiled_path, str)
+                or not isinstance(compiled_size, int)
+                or compiled_size < 0
+                or not isinstance(compiled_sha256, str)
+                or len(compiled_sha256) != 64
+            ):
+                raise ValueError("El manifiesto contiene metadata compilada inválida.")
+            compiled = PackEntry(compiled_path, compiled_size, compiled_sha256)
+
         return cls(
             name=str(data.get("name", "")),
             version=str(data.get("version", "")),
@@ -128,6 +157,7 @@ class PackManifest:
             files=tuple(entries),
             load_graph=load_graph,
             dependency_order=tuple(raw_order),
+            compiled=compiled,
         )
 
 
@@ -251,6 +281,7 @@ def _dependency_index(
 def _manifest_for(
     entrypoint: Path,
     files: tuple[tuple[str, Path], ...],
+    compiled_data: bytes | None = None,
 ) -> PackManifest:
     load_graph, dependency_order = _dependency_index(entrypoint, files)
     entries: list[PackEntry] = []
@@ -272,7 +303,77 @@ def _manifest_for(
         files=tuple(entries),
         load_graph=load_graph,
         dependency_order=dependency_order,
+        compiled=(
+            PackEntry(
+                path="compiled/program.sqlite3",
+                size=len(compiled_data),
+                sha256=_sha256(compiled_data),
+            )
+            if compiled_data is not None
+            else None
+        ),
     )
+
+
+def _build_compiled_database(entrypoint: Path) -> bytes:
+    """Compile a source project in an isolated global context."""
+
+    try:
+        # Direct ``rif --pack`` must bootstrap the VNMA vendor projection before
+        # importing MIR/Gram. Under ``vnma run`` this is already initialized.
+        import vendor  # noqa: F401
+        from Frontend import globals as rif_globals
+        from MIR import compile_source
+        from MIR.compiled import build_database
+        from MIR import compiler as compiler_module
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "No se pudo precompilar el paquete: instala Gram con 'vnma install'."
+        ) from exc
+
+    mutable_names = (
+        "DEFINES",
+        "TABLES",
+        "RULES",
+        "SUPPORTS",
+        "ASM_VARIANTS",
+        "LOADED_SOURCES",
+        "ACTIVE_SOURCES",
+        "VARIANT_STACK",
+    )
+    previous = {
+        "STACK": rif_globals.STACK,
+        "STACK_SIZE": rif_globals.STACK_SIZE,
+        "CONFIG": rif_globals.CONFIG,
+        "LINKER": rif_globals.LINKER,
+        "SOURCE_PROVIDER": rif_globals.SOURCE_PROVIDER,
+        **{name: getattr(rif_globals, name) for name in mutable_names},
+        "SOURCE_TEXTS": dict(compiler_module.SOURCE_TEXTS),
+    }
+    try:
+        rif_globals.STACK = None
+        rif_globals.STACK_SIZE = None
+        rif_globals.CONFIG = None
+        rif_globals.LINKER = None
+        rif_globals.SOURCE_PROVIDER = None
+        rif_globals.DEFINES = set()
+        rif_globals.TABLES = {}
+        rif_globals.RULES = {}
+        rif_globals.SUPPORTS = {}
+        rif_globals.ASM_VARIANTS = {}
+        rif_globals.LOADED_SOURCES = {}
+        rif_globals.ACTIVE_SOURCES = []
+        rif_globals.VARIANT_STACK = []
+        compiler_module.SOURCE_TEXTS.clear()
+        program = compile_source(entrypoint)
+        return build_database(program, source_root=entrypoint.parent)
+    finally:
+        for name, value in previous.items():
+            if name == "SOURCE_TEXTS":
+                compiler_module.SOURCE_TEXTS.clear()
+                compiler_module.SOURCE_TEXTS.update(value)
+            else:
+                setattr(rif_globals, name, value)
 
 
 def _zip_info(name: str) -> zipfile.ZipInfo:
@@ -288,8 +389,15 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
 def create_pack(
     source: str | Path,
     output: str | Path | None = None,
+    *,
+    precompile: bool = False,
 ) -> Path:
-    """Create a reproducible ``.pack`` from the project containing ``source``."""
+    """Create a reproducible ``.pack`` from the project containing ``source``.
+
+    ``precompile=True`` adds the SQLite/MIR cache used by the normal ``rif
+    --pack`` command. The default remains source-only for low-level callers
+    that only need the archive and dependency graph.
+    """
 
     entrypoint = _canonical_path(source)
     if not entrypoint.is_file():
@@ -298,7 +406,8 @@ def create_pack(
         raise ValueError(f"El entrypoint del paquete debe ser .rif: {entrypoint}")
 
     files = _project_files(entrypoint)
-    manifest = _manifest_for(entrypoint, files)
+    compiled_data = _build_compiled_database(entrypoint) if precompile else None
+    manifest = _manifest_for(entrypoint, files, compiled_data)
     target = _canonical_path(output) if output is not None else entrypoint.with_suffix(".pack")
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -326,6 +435,8 @@ def create_pack(
                 + b"\n"
             )
             archive.writestr(_zip_info(MANIFEST_NAME), manifest_bytes)
+            if compiled_data is not None:
+                archive.writestr(_zip_info("compiled/program.sqlite3"), compiled_data)
             for relative, path in files:
                 archive.writestr(
                     _zip_info(f"{SOURCE_PREFIX}{relative}"),
@@ -398,6 +509,16 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
                 if any(positions[dependency] >= positions[source] for dependency in dependencies):
                     raise ValueError("El orden de dependencias del paquete es inválido.")
 
+        if manifest.compiled is not None:
+            compiled = manifest.compiled
+            if not compiled.path.startswith("compiled/"):
+                raise ValueError("Ruta de base compilada inválida en el paquete.")
+            if compiled.path not in names:
+                raise ValueError("Falta la base SQLite compilada del paquete.")
+            data = archive.read(compiled.path)
+            if len(data) != compiled.size or _sha256(data) != compiled.sha256:
+                raise ValueError("Hash inválido para la base SQLite compilada.")
+
     return manifest
 
 
@@ -422,7 +543,10 @@ class PackReader:
     def _source_key(self, source: str | Path | None) -> str:
         if source is None:
             return self.manifest.entrypoint
-        value = PurePosixPath(str(source).replace("\\", "/")).as_posix()
+        value = str(source).replace("\\", "/")
+        if value.startswith("pack://") and "::" in value:
+            value = value.rsplit("::", 1)[1]
+        value = PurePosixPath(value).as_posix()
         if not value.startswith(SOURCE_PREFIX):
             value = f"{SOURCE_PREFIX}{value.lstrip('/')}"
         normalized = PurePosixPath(value)
@@ -432,6 +556,41 @@ class PackReader:
         if key not in self._known_sources:
             raise FileNotFoundError(f"Fuente no incluida en el paquete: {source}")
         return key
+
+    def virtual_path(self, source: str | Path | None = None) -> str:
+        """Return a stable source identifier usable in diagnostics and ASTs."""
+
+        return f"pack://{self.path.as_posix()}::{self._source_key(source)}"
+
+    def resolve_load(self, source: str | Path | None, requested: str) -> str:
+        """Resolve an @LOAD through the precomputed package graph."""
+
+        source_key = self._source_key(source)
+        requested_path = PurePosixPath(requested.replace("\\", "/"))
+        if requested_path.is_absolute() or ".." in requested_path.parts:
+            raise ValueError(f"@LOAD intenta salir del paquete: {requested!r}")
+        candidate = posixpath.normpath(
+            str(PurePosixPath(PurePosixPath(source_key).parent) / requested_path)
+        )
+        if not candidate.startswith(SOURCE_PREFIX) or candidate == SOURCE_PREFIX.rstrip("/"):
+            raise ValueError(f"@LOAD intenta salir del paquete: {requested!r}")
+        key = candidate
+        if key not in self._known_sources:
+            raise FileNotFoundError(f"Fuente no incluida en el paquete: {requested}")
+        if key not in self.manifest.load_graph.get(source_key, ()):
+            raise ValueError(
+                f"@LOAD no coincide con el índice precalculado: {source_key} -> {key}"
+            )
+        return self.virtual_path(key)
+
+    def resolve_variant(self, name: str, searching: str = "") -> str:
+        directory = PurePosixPath(SOURCE_PREFIX)
+        if searching:
+            directory /= PurePosixPath(searching.replace("\\", "/"))
+        key = (directory / f"{name}.rif").as_posix()
+        if key not in self._known_sources:
+            raise FileNotFoundError(f"Variante no incluida en el paquete: {name}")
+        return self.virtual_path(key)
 
     def source_bytes(self, source: str | Path | None = None) -> bytes:
         """Read one source directly from the package archive."""
@@ -448,6 +607,15 @@ class PackReader:
         """Return the precomputed dependency-first source order."""
 
         return self.manifest.dependency_order
+
+    def compiled_database(self) -> bytes | None:
+        if self.manifest.compiled is None:
+            return None
+        return self._archive.read(self.manifest.compiled.path)
+
+    @property
+    def has_compiled_database(self) -> bool:
+        return self.manifest.compiled is not None
 
 
 __all__ = [

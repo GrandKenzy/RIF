@@ -59,19 +59,25 @@ def load_source(
     source_path: str | Path | None,
     *,
     scope: str = "root",
+    source_provider: Any | None = None,
 ) -> None:
     """Carga y procesa un archivo RIF dentro del alcance solicitado."""
 
     requested = _requested_path(node)
-    path = resolve_source(requested, source_path)
-    path_key = str(path)
+    provider = source_provider if source_provider is not None else globals.SOURCE_PROVIDER
+    if provider is not None:
+        path_key = provider.resolve_load(source_path, requested)
+        path = None
+    else:
+        path = resolve_source(requested, source_path)
+        path_key = str(path)
 
     if path_key in globals.ACTIVE_SOURCES:
         cycle = " -> ".join((*globals.ACTIVE_SOURCES, path_key))
         raise RuntimeError(f"Ciclo de @LOAD detectado: {cycle}")
     if path_key in globals.LOADED_SOURCES:
         return
-    if not path.is_file():
+    if path is not None and not path.is_file():
         raise FileNotFoundError(f"No se encontró el archivo solicitado por @LOAD: {path}")
 
     from Frontend import RIF_LANG_SESSION
@@ -79,11 +85,21 @@ def load_source(
 
     globals.ACTIVE_SOURCES.append(path_key)
     try:
-        source = path.read_text(encoding="utf-8")
+        source = (
+            provider.source_text(path_key)
+            if provider is not None
+            else path.read_text(encoding="utf-8")
+        )
         RIF_LANG_SESSION.load()
         tokens = RIF_LANG_SESSION.tokenize(source, path_key)
         ast = RIF_LANG_SESSION.parse(tokens, path_key)
-        process(ast, source_path=path_key, load_variants=False, scope=scope)
+        process(
+            ast,
+            source_path=path_key,
+            load_variants=False,
+            scope=scope,
+            source_provider=provider,
+        )
         globals.LOADED_SOURCES[path_key] = "load"
     finally:
         if globals.ACTIVE_SOURCES and globals.ACTIVE_SOURCES[-1] == path_key:

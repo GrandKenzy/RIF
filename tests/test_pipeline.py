@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from Frontend import globals as rif_globals
 from MIR import compile_project, compile_source
+from pack import create_pack, read_pack
 
 
 def reset_globals() -> None:
@@ -20,6 +22,7 @@ def reset_globals() -> None:
     rif_globals.LOADED_SOURCES.clear()
     rif_globals.ACTIVE_SOURCES.clear()
     rif_globals.VARIANT_STACK.clear()
+    rif_globals.SOURCE_PROVIDER = None
 
 
 class PipelineTests(unittest.TestCase):
@@ -49,6 +52,44 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("_start:", output)
         self.assertIn(".byte 0xa5", output)
         self.assertNotIn(".section data:", output)
+
+    def test_compile_source_accepts_pack_and_resolves_loads_from_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rif"
+            rules = root / "rules.rif"
+            main.write_text('@LOAD "rules.rif"\n', encoding="utf-8")
+            rules.write_text(
+                "@rule sample:\n"
+                "-> put 0000 0000\n",
+                encoding="utf-8",
+            )
+            package = create_pack(main)
+
+            direct = compile_source(main)
+            reset_globals()
+            packed = compile_source(package)
+
+            self.assertEqual(set(direct.rules), {"sample"})
+            self.assertEqual(set(packed.rules), set(direct.rules))
+            self.assertEqual(
+                packed.rules["sample"].instructions[0].operands[0].width,
+                4,
+            )
+            self.assertIn("sources/rules.rif", read_pack(package).load_graph["sources/main.rif"])
+
+            compiled_package = create_pack(
+                main,
+                root / "compiled.pack",
+                precompile=True,
+            )
+            reset_globals()
+            compiled = compile_source(compiled_package)
+            self.assertEqual(set(compiled.rules), {"sample"})
+            self.assertEqual(
+                compiled.rules["sample"].instructions[0].operands[0].width,
+                4,
+            )
 
 
 if __name__ == "__main__":
