@@ -9,11 +9,38 @@ from .bitbuffer import (
 from .emitter import BitEmitter, BitField, field
 from .compiler import compile_instruction, compile_rule, compile_rules
 from .compiled import build_database, load_database, program_from_dict, program_to_dict
-from .instructions import Instruction, Operand, ProgramIR, RuleIR, SourceSpan
+from .instructions import (
+    CompiledRule,
+    CompiledRuleSet,
+    Instruction,
+    Operand,
+    SourceSpan,
+)
 from .semantic import MIRSemanticError, RuleRef, TableRef, TokenRef, resolve_program, resolve_rule
-from .runtime import ExecutionResult, RIFMachine, RIFRuntimeError
+from .runtime import ExecutionResult, RIFMachine, RIFRuntimeError, RuleTrace
+from .function_context import RIFFunctionContext
+from .functions import FunctionModule, RIFFunctionError, load_function_file, load_function_source
+from .external import (
+    MIRCompilation,
+    MIRInputError,
+    PreparedTarget,
+    compile_mir,
+    compile_mir_file,
+    compile_mir_source,
+    compile_mir_tokens,
+    prepare_target,
+    tokenize_mir,
+)
 from .output import AssemblyImage, AssemblySection
-from .pipeline import Compilation, compile_pack, compile_project, compile_source, execute_rule, parse_source
+from .pipeline import (
+    Compilation,
+    compile_definition,
+    compile_pack,
+    compile_project,
+    compile_source,
+    execute_rule,
+    parse_source,
+)
 
 __all__ = [
     "BitBuffer",
@@ -27,8 +54,8 @@ __all__ = [
     "field",
     "Instruction",
     "Operand",
-    "ProgramIR",
-    "RuleIR",
+    "CompiledRule",
+    "CompiledRuleSet",
     "SourceSpan",
     "compile_instruction",
     "compile_rule",
@@ -44,13 +71,29 @@ __all__ = [
     "resolve_rule",
     "resolve_program",
     "ExecutionResult",
+    "RuleTrace",
     "RIFMachine",
     "RIFRuntimeError",
+    "RIFFunctionContext",
+    "FunctionModule",
+    "RIFFunctionError",
+    "load_function_file",
+    "load_function_source",
+    "MIRCompilation",
+    "MIRInputError",
+    "PreparedTarget",
+    "tokenize_mir",
+    "compile_mir",
+    "compile_mir_tokens",
+    "compile_mir_source",
+    "compile_mir_file",
+    "prepare_target",
     "AssemblyImage",
     "AssemblySection",
     "Compilation",
     "parse_source",
     "compile_source",
+    "compile_definition",
     "compile_pack",
     "compile_project",
     "execute_rule",

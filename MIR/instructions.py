@@ -1,4 +1,8 @@
-"""Flat intermediate representation for compiled RIF Rules."""
+"""Internal representation of compiled RIF Rules.
+
+This module does not define the user-facing/external MIR input. Its public
+names are :class:`CompiledRule` and :class:`CompiledRuleSet`.
+"""
 
 from __future__ import annotations
 
@@ -31,15 +35,23 @@ class Instruction:
 
 
 @dataclass(frozen=True)
-class RuleIR:
+class CompiledRule:
     name: str
     instructions: tuple[Instruction, ...]
     source_path: str | None = None
 
 
 @dataclass(frozen=True)
-class ProgramIR:
-    rules: dict[str, RuleIR]
+class CompiledRuleSet:
+    """Resolved Rules produced from a ``.rif`` definition or ``.pack``."""
+
+    rules: dict[str, CompiledRule]
 
 
-__all__ = ["SourceSpan", "Operand", "Instruction", "RuleIR", "ProgramIR"]
+__all__ = [
+    "SourceSpan",
+    "Operand",
+    "Instruction",
+    "CompiledRule",
+    "CompiledRuleSet",
+]

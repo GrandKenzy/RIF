@@ -8,7 +8,7 @@ from Frontend import RIF_LANG_SESSION
 from Frontend import globals as rif_globals
 from Frontend.processor import process
 from gram import lexer
-from MIR import MIRSemanticError, TableRef, TokenRef, compile_rules
+from MIR import CompiledRuleSet, MIRSemanticError, TableRef, TokenRef, compile_rules
 
 
 def reset_globals() -> None:

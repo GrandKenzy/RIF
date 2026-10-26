@@ -9,7 +9,7 @@ from gram import lexer
 
 from Frontend import globals
 
-from .instructions import Instruction, Operand, ProgramIR, RuleIR
+from .instructions import CompiledRule, CompiledRuleSet, Instruction, Operand
 
 
 class MIRSemanticError(ValueError):
@@ -103,6 +103,16 @@ def _resolve_operand(instruction: Instruction, operand: Operand) -> Operand:
     if operand.kind == "reservation_access":
         if not isinstance(operand.value, str) or not operand.value:
             raise _error(instruction, "el nombre de reserva no es válido.")
+    if operand.kind in {
+        "distance",
+        "vdistance",
+        "reservation_address",
+        "reservation_vaddress",
+        "reservation_distance",
+        "reservation_vdistance",
+    }:
+        if not isinstance(operand.value, str) or not operand.value:
+            raise _error(instruction, "el nombre de reserva o etiqueta no es válido.")
     return operand
 
 
@@ -113,6 +123,8 @@ _ARITY: dict[str, tuple[int, int | None]] = {
     "put": (2, 2),
     "ebit": (8, 8),
     "emmit": (1, 1),
+    "padding": (1, 1),
+    "alignement": (1, 1),
     "kw": (1, 1),
     "jmp": (1, 1),
     "save": (1, 1),
@@ -164,21 +176,28 @@ def _validate_instruction(instruction: Instruction) -> Instruction:
         size = operands[1]
         if size.kind != "number" or not isinstance(size.value, int) or size.value <= 0:
             raise _error(instruction, "RESERVE requiere un tamaño entero mayor que cero.")
+    elif instruction.opcode in {"padding", "alignement"}:
+        size = operands[0]
+        if size.kind != "number" or not isinstance(size.value, int) or size.value <= 0:
+            raise _error(
+                instruction,
+                f"{instruction.opcode.upper()} requiere un tamaño entero mayor que cero.",
+            )
 
     return replace(instruction, operands=operands)
 
 
-def resolve_rule(rule: RuleIR) -> RuleIR:
+def resolve_rule(rule: CompiledRule) -> CompiledRule:
     return replace(
         rule,
         instructions=tuple(_validate_instruction(instruction) for instruction in rule.instructions),
     )
 
 
-def resolve_program(program: ProgramIR) -> ProgramIR:
+def resolve_program(program: CompiledRuleSet) -> CompiledRuleSet:
     """Resolve names and validate every instruction in a compiled program."""
 
-    return ProgramIR({name: resolve_rule(rule) for name, rule in program.rules.items()})
+    return CompiledRuleSet({name: resolve_rule(rule) for name, rule in program.rules.items()})
 
 
 __all__ = [

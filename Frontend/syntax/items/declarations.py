@@ -101,6 +101,28 @@ class EMMIT(cmb.RuleItem):
     )
 
 
+class PADDING(cmb.RuleItem):
+    nodeable = True
+    description = "Inserta una cantidad explícita de ceros y la registra como padding."
+    entrypoint = cmb.Seq(
+        cmb.MatchToken("ARROW"),
+        cmb.MatchKeyword("padding"),
+        cmb.MatchToken("NUMBER"),
+        cmb.MatchToken("NEWLINE"),
+    )
+
+
+class ALIGNEMENT(cmb.RuleItem):
+    nodeable = True
+    description = "Alinea la posición actual insertando el padding necesario."
+    entrypoint = cmb.Seq(
+        cmb.MatchToken("ARROW"),
+        cmb.MatchKeyword("alignement"),
+        cmb.MatchToken("NUMBER"),
+        cmb.MatchToken("NEWLINE"),
+    )
+
+
 class DEFINE(cmb.RuleItem):
     nodeable = True
     description = "Declara un nombre reutilizable del lenguaje."

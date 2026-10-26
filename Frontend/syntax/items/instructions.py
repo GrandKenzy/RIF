@@ -45,6 +45,8 @@ class InstructionConsumer(cmb.Combinator):
         "error": "error",
         "CALL": "call",
         "emitfr": "emitfr",
+        "padding": "padding",
+        "alignement": "alignement",
     }
 
     @staticmethod

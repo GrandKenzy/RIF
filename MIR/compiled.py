@@ -11,7 +11,7 @@ from gram import lexer
 
 from Frontend import globals
 
-from .instructions import Instruction, Operand, ProgramIR, RuleIR, SourceSpan
+from .instructions import CompiledRule, CompiledRuleSet, Instruction, Operand, SourceSpan
 from .semantic import RuleRef, TableRef, TokenRef
 
 
@@ -150,7 +150,7 @@ def _portable_path(path: str | None, source_root: str | Path | None) -> str | No
 
 
 def program_to_dict(
-    program: ProgramIR,
+    program: CompiledRuleSet,
     source_root: str | Path | None = None,
 ) -> dict[str, Any]:
     return {
@@ -176,8 +176,8 @@ def program_to_dict(
     }
 
 
-def program_from_dict(data: dict[str, Any]) -> ProgramIR:
-    rules: dict[str, RuleIR] = {}
+def program_from_dict(data: dict[str, Any]) -> CompiledRuleSet:
+    rules: dict[str, CompiledRule] = {}
     for name, raw_rule in data.get("rules", {}).items():
         instructions = []
         for raw_instruction in raw_rule["instructions"]:
@@ -193,12 +193,12 @@ def program_from_dict(data: dict[str, Any]) -> ProgramIR:
                     ),
                 )
             )
-        rules[str(name)] = RuleIR(
+        rules[str(name)] = CompiledRule(
             name=str(raw_rule.get("name", name)),
             instructions=tuple(instructions),
             source_path=raw_rule.get("source_path"),
         )
-    return ProgramIR(rules)
+    return CompiledRuleSet(rules)
 
 
 def _config_to_dict(config: globals.ConfigData | None) -> dict[str, Any] | None:
@@ -311,7 +311,7 @@ def load_context(connection: sqlite3.Connection, context: dict[str, Any]) -> Non
 
 
 def build_database(
-    program: ProgramIR,
+    program: CompiledRuleSet,
     source_root: str | Path | None = None,
 ) -> bytes:
     connection = sqlite3.connect(":memory:")
@@ -371,7 +371,7 @@ def build_database(
         connection.close()
 
 
-def load_database(data: bytes) -> ProgramIR:
+def load_database(data: bytes) -> CompiledRuleSet:
     connection = sqlite3.connect(":memory:")
     try:
         connection.deserialize(data)

@@ -1,9 +1,9 @@
 """Formato y creación de paquetes fuente ``.pack`` de RIF.
 
 Un paquete ``.pack`` es un ZIP reproducible que contiene todos los archivos
-``.rif`` del directorio del proyecto bajo ``sources/``, un manifiesto JSON y,
-cuando se crea con ``precompile=True``, una base SQLite con el MIR y el
-contexto ya resueltos.
+``.rif`` del directorio del proyecto bajo ``sources/``, un ``funcs.py``
+opcional, un manifiesto JSON y, cuando se crea con ``precompile=True``, una
+base SQLite con el MIR y el contexto ya resueltos.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any
 
 
 PACK_FORMAT = "RIF_PACK"
-PACK_FORMAT_VERSION = 2
+PACK_FORMAT_VERSION = 3
 MANIFEST_NAME = "manifest.json"
 SOURCE_PREFIX = "sources/"
 _LOAD_RE = re.compile(r'^\s*@LOAD\s+"([^"]+)"(?:\s*;.*)?\s*$', re.IGNORECASE)
@@ -29,7 +29,7 @@ _LOAD_RE = re.compile(r'^\s*@LOAD\s+"([^"]+)"(?:\s*;.*)?\s*$', re.IGNORECASE)
 
 @dataclass(frozen=True)
 class PackEntry:
-    """Metadata de un archivo RIF incluido en el paquete."""
+    """Metadata de un archivo incluido en el paquete."""
 
     path: str
     size: int
@@ -47,6 +47,7 @@ class PackManifest:
     files: tuple[PackEntry, ...]
     load_graph: dict[str, tuple[str, ...]]
     dependency_order: tuple[str, ...]
+    functions: PackEntry | None = None
     compiled: PackEntry | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -70,6 +71,15 @@ class PackManifest:
                 for path, dependencies in sorted(self.load_graph.items())
             },
             "dependency_order": list(self.dependency_order),
+            "functions": (
+                {
+                    "path": self.functions.path,
+                    "size": self.functions.size,
+                    "sha256": self.functions.sha256,
+                }
+                if self.functions is not None
+                else None
+            ),
             "compiled": (
                 {
                     "path": self.compiled.path,
@@ -86,7 +96,7 @@ class PackManifest:
         if data.get("format") != PACK_FORMAT:
             raise ValueError("El archivo no es un paquete RIF válido.")
         format_version = data.get("format_version")
-        if format_version not in {1, PACK_FORMAT_VERSION}:
+        if format_version not in {1, 2, PACK_FORMAT_VERSION}:
             raise ValueError(
                 "Versión de formato .pack no compatible: "
                 f"{format_version!r}."
@@ -150,6 +160,24 @@ class PackManifest:
                 raise ValueError("El manifiesto contiene metadata compilada inválida.")
             compiled = PackEntry(compiled_path, compiled_size, compiled_sha256)
 
+        raw_functions = data.get("functions")
+        functions = None
+        if raw_functions is not None:
+            if not isinstance(raw_functions, dict):
+                raise ValueError("El manifiesto contiene metadata de funcs.py inválida.")
+            function_path = raw_functions.get("path")
+            function_size = raw_functions.get("size")
+            function_sha256 = raw_functions.get("sha256")
+            if (
+                not isinstance(function_path, str)
+                or not isinstance(function_size, int)
+                or function_size < 0
+                or not isinstance(function_sha256, str)
+                or len(function_sha256) != 64
+            ):
+                raise ValueError("El manifiesto contiene metadata de funcs.py inválida.")
+            functions = PackEntry(function_path, function_size, function_sha256)
+
         return cls(
             name=str(data.get("name", "")),
             version=str(data.get("version", "")),
@@ -157,6 +185,7 @@ class PackManifest:
             files=tuple(entries),
             load_graph=load_graph,
             dependency_order=tuple(raw_order),
+            functions=functions,
             compiled=compiled,
         )
 
@@ -282,6 +311,7 @@ def _manifest_for(
     entrypoint: Path,
     files: tuple[tuple[str, Path], ...],
     compiled_data: bytes | None = None,
+    function_data: bytes | None = None,
 ) -> PackManifest:
     load_graph, dependency_order = _dependency_index(entrypoint, files)
     entries: list[PackEntry] = []
@@ -303,6 +333,15 @@ def _manifest_for(
         files=tuple(entries),
         load_graph=load_graph,
         dependency_order=dependency_order,
+        functions=(
+            PackEntry(
+                path="funcs.py",
+                size=len(function_data),
+                sha256=_sha256(function_data),
+            )
+            if function_data is not None
+            else None
+        ),
         compiled=(
             PackEntry(
                 path="compiled/program.sqlite3",
@@ -406,8 +445,17 @@ def create_pack(
         raise ValueError(f"El entrypoint del paquete debe ser .rif: {entrypoint}")
 
     files = _project_files(entrypoint)
+    function_path = entrypoint.parent / "funcs.py"
+    function_data = None
+    if function_path.is_file():
+        resolved_function = function_path.resolve(strict=True)
+        try:
+            resolved_function.relative_to(entrypoint.parent.resolve())
+        except ValueError as exc:
+            raise ValueError("funcs.py está fuera del proyecto.") from exc
+        function_data = resolved_function.read_bytes()
     compiled_data = _build_compiled_database(entrypoint) if precompile else None
-    manifest = _manifest_for(entrypoint, files, compiled_data)
+    manifest = _manifest_for(entrypoint, files, compiled_data, function_data)
     target = _canonical_path(output) if output is not None else entrypoint.with_suffix(".pack")
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -437,6 +485,8 @@ def create_pack(
             archive.writestr(_zip_info(MANIFEST_NAME), manifest_bytes)
             if compiled_data is not None:
                 archive.writestr(_zip_info("compiled/program.sqlite3"), compiled_data)
+            if function_data is not None:
+                archive.writestr(_zip_info("funcs.py"), function_data)
             for relative, path in files:
                 archive.writestr(
                     _zip_info(f"{SOURCE_PREFIX}{relative}"),
@@ -518,6 +568,16 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
             data = archive.read(compiled.path)
             if len(data) != compiled.size or _sha256(data) != compiled.sha256:
                 raise ValueError("Hash inválido para la base SQLite compilada.")
+
+        if manifest.functions is not None:
+            functions = manifest.functions
+            if functions.path != "funcs.py":
+                raise ValueError("Ruta de funcs.py inválida en el paquete.")
+            if functions.path not in names:
+                raise ValueError("Falta funcs.py declarado por el manifiesto.")
+            data = archive.read(functions.path)
+            if verify and (len(data) != functions.size or _sha256(data) != functions.sha256):
+                raise ValueError("Hash inválido para funcs.py.")
 
     return manifest
 
@@ -612,6 +672,20 @@ class PackReader:
         if self.manifest.compiled is None:
             return None
         return self._archive.read(self.manifest.compiled.path)
+
+    def function_bytes(self) -> bytes | None:
+        """Read the optional root-level ``funcs.py`` from the package."""
+
+        if self.manifest.functions is None:
+            return None
+        return self._archive.read(self.manifest.functions.path)
+
+    def function_source(self) -> str | None:
+        data = self.function_bytes()
+        return data.decode("utf-8") if data is not None else None
+
+    def virtual_function_path(self) -> str:
+        return f"pack://{self.path.as_posix()}::funcs.py"
 
     @property
     def has_compiled_database(self) -> bool:

@@ -20,7 +20,17 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         metavar="ARCHIVO.PACK",
-        help="ruta de salida del paquete; por defecto usa el nombre del entrypoint",
+        help="ruta de salida del paquete o binario; por defecto se deriva del input",
+    )
+    parser.add_argument(
+        "definition",
+        nargs="?",
+        help="definición objetivo .rif o .pack",
+    )
+    parser.add_argument(
+        "mir",
+        nargs="?",
+        help="archivo MIR con la extensión declarada por .ext",
     )
     return parser
 
@@ -29,7 +39,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.pack:
-        parser.error("debes indicar una operación, por ejemplo: rif --pack main.rif")
+        if not args.definition or not args.mir:
+            parser.error(
+                "debes indicar una definición y un MIR, por ejemplo: rif main.rif main.asm"
+            )
+        output = args.output
+        if output is None:
+            output = str(Path(args.mir).with_suffix(".bin"))
+        try:
+            from MIR import compile_mir_file
+
+            compile_mir_file(args.definition, args.mir, output=output)
+        except (FileNotFoundError, OSError, ValueError, RuntimeError) as exc:
+            print(f"rif: error: {exc}", file=sys.stderr)
+            return 1
+        print(output)
+        return 0
+
+    if args.definition or args.mir:
+        parser.error("--pack no puede combinarse con una definición MIR")
 
     try:
         output = create_pack(Path(args.pack), args.output, precompile=True)

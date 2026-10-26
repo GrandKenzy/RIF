@@ -87,6 +87,13 @@ class BitEmitter:
             return self.buffer.append_int(item.value, item.width)
         return self.buffer.append_bits(item.value, item.width)
 
+    def padding(self, width: int) -> BitSpan:
+        """Append explicit zero bits and return their span."""
+
+        if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
+            raise ValueError("padding requiere un ancho entero mayor que cero.")
+        return self.buffer.append_bits(0, width)
+
     def reserve(self, name: str, width: int) -> BitSpan:
         return self.buffer.reserve(name, width)
 

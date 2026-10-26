@@ -296,6 +296,15 @@ class BitBuffer:
                 result[-1] &= 0xFF >> unused
         return bytes(result)
 
+    def view(self) -> memoryview:
+        """Return a live byte-level view over the backing storage.
+
+        The view is intentionally not masked or copied. Callers that need a
+        stable serialized value should use :meth:`to_bytes` instead.
+        """
+
+        return memoryview(self._storage)[: self.byte_length]
+
     def __len__(self) -> int:
         return self._bit_length
 

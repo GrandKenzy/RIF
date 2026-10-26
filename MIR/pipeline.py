@@ -13,7 +13,7 @@ from pack import PackReader
 from . import compiler as compiler_module
 from .compiler import compile_rules
 from .compiled import load_database
-from .instructions import ProgramIR
+from .instructions import CompiledRuleSet
 from .output import AssemblyImage
 from .runtime import ExecutionResult, RIFMachine
 
@@ -21,8 +21,26 @@ from .runtime import ExecutionResult, RIFMachine
 @dataclass
 class Compilation:
     source_path: Path
-    program: ProgramIR
+    program: CompiledRuleSet
     image: AssemblyImage | None = None
+
+
+def _reset_context() -> None:
+    """Start an independent target compilation in the process."""
+
+    globals.STACK = None
+    globals.STACK_SIZE = None
+    globals.DEFINES.clear()
+    globals.TABLES.clear()
+    globals.RULES.clear()
+    globals.CONFIG = None
+    globals.LINKER = None
+    globals.SUPPORTS.clear()
+    globals.ASM_VARIANTS.clear()
+    globals.LOADED_SOURCES.clear()
+    globals.ACTIVE_SOURCES.clear()
+    globals.VARIANT_STACK.clear()
+    globals.SOURCE_PROVIDER = None
 
 
 def parse_source(path: str | Path):
@@ -43,7 +61,13 @@ def parse_source(path: str | Path):
     return RIF_LANG_SESSION.parse(tokens, str(source_path)), source_path
 
 
-def compile_source(path: str | Path) -> ProgramIR:
+def compile_source(path: str | Path) -> CompiledRuleSet:
+    """Compile a RIF definition source (``.rif`` or ``.pack``).
+
+    The returned object is the internal compiled Rule set. It is not the
+    external MIR program that those Rules will consume in the next phase.
+    """
+    _reset_context()
     source_path = Path(path).expanduser().resolve()
     if source_path.suffix.lower() == ".pack":
         return compile_pack(source_path)
@@ -52,9 +76,10 @@ def compile_source(path: str | Path) -> ProgramIR:
     return compile_rules(resolve=True)
 
 
-def compile_pack(path: str | Path) -> ProgramIR:
+def compile_pack(path: str | Path) -> CompiledRuleSet:
     """Compile a .pack entrypoint using its precomputed source index."""
 
+    _reset_context()
     package_path = Path(path).expanduser().resolve()
     with PackReader(package_path) as package:
         compiled_database = package.compiled_database()
@@ -84,6 +109,12 @@ def compile_pack(path: str | Path) -> ProgramIR:
             compiler_module.SOURCE_TEXTS.update(previous_sources)
 
 
+def compile_definition(path: str | Path) -> CompiledRuleSet:
+    """Explicit name for compiling a ``.rif``/``.pack`` target definition."""
+
+    return compile_source(path)
+
+
 def compile_project(path: str | Path) -> Compilation:
     program = compile_source(path)
     if globals.CONFIG is None:
@@ -98,14 +129,12 @@ def execute_rule(
     tokens: Iterable[object],
     *,
     section: str | None = None,
-    functions: dict[str, object] | None = None,
 ) -> ExecutionResult:
     if compilation.image is None:
         raise RuntimeError("La compilación no tiene AssemblyImage.")
     machine = RIFMachine(
         compilation.program,
         emitter=compilation.image.emitter(section),
-        functions=functions,
     )
     return machine.execute(rule_name, tokens)  # type: ignore[arg-type]
 
@@ -114,6 +143,7 @@ __all__ = [
     "Compilation",
     "parse_source",
     "compile_source",
+    "compile_definition",
     "compile_pack",
     "compile_project",
     "execute_rule",

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from Frontend import globals
 from Frontend.syntax.items.instructions import RawInstruction
 
-from .instructions import Instruction, Operand, ProgramIR, RuleIR, SourceSpan
+from .instructions import CompiledRule, CompiledRuleSet, Instruction, Operand, SourceSpan
 
 
 _VALUE_KINDS = {"NUMBER", "IDENT", "STRING", "BOOL"}
@@ -129,6 +129,32 @@ def _value_operand(node: Any, source_path: str | None) -> Operand:
             raise RuntimeError("CALL_VALUE debe contener un nombre.")
         return Operand("call", _token_value(leaves[0]))
 
+    position_values = {
+        "SIZE_VALUE": "size",
+        "VSIZE_VALUE": "vsize",
+        "ALIGNMENT_VALUE": "alignment",
+        "DIST_VALUE": "distance",
+        "VDIST_VALUE": "vdistance",
+        "RESDIR_VALUE": "reservation_address",
+        "RESVDIR_VALUE": "reservation_vaddress",
+        "RESDIST_VALUE": "reservation_distance",
+        "RESVDIST_VALUE": "reservation_vdistance",
+    }
+    for node_name, operand_kind in position_values.items():
+        matches = _named(node, node_name)
+        if not matches:
+            continue
+        strings = tuple(
+            current
+            for current in _walk(matches[0])
+            if _token_kind(current) == "STRING"
+        )
+        if operand_kind in {"size", "vsize", "alignment"}:
+            return Operand(operand_kind, None)
+        if len(strings) != 1:
+            raise RuntimeError(f"{node_name} debe contener un nombre string.")
+        return Operand(operand_kind, _token_value(strings[0]))
+
     leaves = tuple(current for current in _walk(node) if _token_kind(current) in _VALUE_KINDS)
     if len(leaves) != 1:
         raise RuntimeError("VALUE debe contener un único literal o acceso.")
@@ -233,6 +259,36 @@ def _raw_token_reference(token: Any, source_path: str | None) -> Operand:
 def _raw_value(tokens: tuple[Any, ...], index: int, source_path: str | None) -> tuple[Operand, int]:
     token = tokens[index]
     kind = getattr(getattr(token, "token", None), "name", None)
+    if kind == "COLON":
+        if (
+            index + 2 >= len(tokens)
+            or tokens[index + 1].token.name != "COLON"
+            or tokens[index + 2].token.name != "KEYWORD"
+        ):
+            raise RuntimeError("VALUE de posición incompleto.")
+        position_names = {
+            "SIZE": "size",
+            "VSIZE": "vsize",
+            "ALIGNMENT": "alignment",
+        }
+        operand_kind = position_names.get(str(tokens[index + 2].value))
+        if operand_kind is None:
+            raise RuntimeError("VALUE de posición desconocido.")
+        return Operand(operand_kind, None), index + 3
+    if kind == "KEYWORD":
+        distance_names = {
+            "dist": "distance",
+            "vdist": "vdistance",
+            "resdir": "reservation_address",
+            "resvdir": "reservation_vaddress",
+            "resdist": "reservation_distance",
+            "resvdist": "reservation_vdistance",
+        }
+        operand_kind = distance_names.get(str(tokens[index].value))
+        if operand_kind is not None:
+            if index + 1 >= len(tokens) or tokens[index + 1].token.name != "STRING":
+                raise RuntimeError(f"{tokens[index].value} requiere un nombre string.")
+            return Operand(operand_kind, tokens[index + 1].value), index + 2
     if kind == "DOLLAR":
         if index + 3 >= len(tokens) or tokens[index + 1].token.name != "IDENT" or tokens[index + 2].token.name != "DOT" or tokens[index + 3].token.name != "IDENT":
             raise RuntimeError("TABLE_ACCESS está incompleto.")
@@ -298,7 +354,7 @@ def _compile_raw(node: RawInstruction, source_path: str | None) -> Instruction:
         operands = (Operand("frame", tuple(rows)),)
     else:
         rest = tuple(body[1:])
-        if opcode in {"put", "ebit", "emmit", "ldres"}:
+        if opcode in {"put", "ebit", "emmit", "ldres", "padding", "alignement"}:
             if opcode == "ldres":
                 first_string = next((token for token in rest if token.token.name == "STRING"), None)
                 if first_string is None:
@@ -364,8 +420,8 @@ def compile_instruction(node: Any, source_path: str | None = None) -> Instructio
     )
 
 
-def compile_rule(rule: globals.RuleData) -> RuleIR:
-    return RuleIR(
+def compile_rule(rule: globals.RuleData) -> CompiledRule:
+    return CompiledRule(
         name=rule.name,
         instructions=tuple(compile_instruction(node, rule.source_path) for node in rule.instructions),
         source_path=rule.source_path,
@@ -376,10 +432,10 @@ def compile_rules(
     rules: Iterable[globals.RuleData] | None = None,
     *,
     resolve: bool = False,
-) -> ProgramIR:
+) -> CompiledRuleSet:
     selected = tuple(rules) if rules is not None else tuple(globals.RULES.values())
     compiled = {rule.name: compile_rule(rule) for rule in selected}
-    program = ProgramIR(compiled)
+    program = CompiledRuleSet(compiled)
     if resolve:
         from .semantic import resolve_program
 

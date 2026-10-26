@@ -7,7 +7,33 @@ from pathlib import Path
 from Frontend import RIF_LANG_SESSION
 from Frontend import globals as rif_globals
 from Frontend.processor import process
-from MIR import BitEmitter, RIFMachine, compile_rules
+from MIR import BitEmitter, MIRSemanticError, RIFMachine, compile_rules
+
+
+CONFIG_SOURCE = """\
+@config:
+.sectiondef ".section"
+.make section "text"
+.sectionend ":"
+.entrysection "text"
+.entrylabel "_start"
+.comment ";"
+.labelend ":"
+.datasection "text"
+.defaultsection "text"
+.sectionalign "text" 8
+.wordsize 8
+.addresssize 8
+.endianess "little"
+.casesensitive true
+.symbolprefix "_"
+.localprefix "."
+.undefinedsymbols "error"
+.duplicateSymbols "error"
+.strict true
+.allowemptysections false
+@configend
+"""
 
 
 def reset_globals() -> None:
@@ -100,7 +126,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(result.buffer, b"\xAA\xAA")
             self.assertNotIn("slot", machine.emitter.buffer.regions)
 
-    def test_emitfr_keeps_rows_and_jmpif_can_use_external_call(self) -> None:
+    def test_emitfr_keeps_rows_and_jmpif_can_use_boolean(self) -> None:
         source = (
             "@rule target:\n"
             "-> emmit 1\n"
@@ -109,20 +135,84 @@ class RuntimeTests(unittest.TestCase):
             "00000000\n"
             "0000\n"
             "-> emitfrend\n"
-            "-> jmpif target, #call[is_true]\n"
+            "-> jmpif target, true\n"
         )
         with tempfile.TemporaryDirectory() as directory:
             program = self.compile(source, Path(directory) / "main.rif")
-            machine = RIFMachine(
-                program,
-                emitter=BitEmitter(wordsize=8),
-                functions={"is_true": lambda: True},
-            )
+            machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
             result = machine.execute("sample", ())
 
             # The frame occupies 17 bits, so the following 8-bit word starts
             # unaligned and its final one-bit lands at the MSB of the last byte.
             self.assertEqual(result.buffer, b"\x00\x00\x00\x80")
+
+    def test_padding_alignment_and_position_values_are_traced(self) -> None:
+        source = CONFIG_SOURCE + (
+            "@rule sample:\n"
+            "-> emmit 00000000\n"
+            "-> padding 3\n"
+            "-> alignement 8\n"
+            "-> emmit ::SIZE\n"
+            "-> emmit ::VSIZE\n"
+            "-> emmit ::ALIGNMENT\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            program = self.compile(source, Path(directory) / "positions.rif")
+            machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            result = machine.execute("sample", ())
+
+            self.assertEqual(result.buffer, b"\x00\x00\x10\x18\x08")
+            self.assertEqual(machine.last_rule_trace.start, 0)
+            self.assertEqual(machine.last_rule_trace.bits, 40)
+            self.assertEqual(machine.last_rule_trace.end, 40)
+            self.assertEqual(machine.last_rule_trace.padding_bits, 8)
+
+    def test_reservation_and_label_distances_are_values(self) -> None:
+        source = (
+            "@rule sample:\n"
+            '-> reserve "slot" 8\n'
+            "-> emmit 00000000\n"
+            '-> emmit resdir "slot"\n'
+            '-> emmit resdist "slot"\n'
+            '-> emmit dist "sample"\n'
+            '-> emmit vdist "sample"\n'
+            '-> emmit resvdir "slot"\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            program = self.compile(source, Path(directory) / "addresses.rif")
+            machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            result = machine.execute("sample", ())
+
+            self.assertEqual(result.buffer, b"\x00\x00\x00\x18\x20\x28\x00")
+            self.assertEqual(machine.emitter.buffer.regions["slot"].offset, 0)
+
+    def test_nested_rule_traces_keep_child_and_parent_spans(self) -> None:
+        source = (
+            "@rule child:\n"
+            "-> emmit 1\n"
+            "-> padding 2\n"
+            "@rule parent:\n"
+            "-> emmit 2\n"
+            "-> JMP child\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            program = self.compile(source, Path(directory) / "nested.rif")
+            machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            machine.execute("parent", ())
+
+            self.assertEqual(
+                [(trace.name, trace.start, trace.bits, trace.end, trace.padding_bits)
+                 for trace in machine.rule_traces],
+                [("child", 8, 10, 18, 2), ("parent", 0, 18, 18, 0)],
+            )
+
+    def test_padding_and_alignment_require_positive_sizes(self) -> None:
+        for opcode in ("padding", "alignement"):
+            source = f"@rule sample:\n-> {opcode} 0\n"
+            with self.subTest(opcode=opcode), tempfile.TemporaryDirectory() as directory:
+                with self.assertRaises(MIRSemanticError):
+                    self.compile(source, Path(directory) / "invalid.rif")
+            reset_globals()
 
 
 if __name__ == "__main__":
