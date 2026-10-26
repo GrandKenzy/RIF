@@ -1,0 +1,66 @@
+; Proyecto demostrativo de RIF
+
+@stack 50
+
+@table registers
+| name | opcode | bits | value |
+________________________________________
+| mov | 1 | "00000000" | 42 |
+________________________________________
+| add | 2 | "00000001" | 7 |
+________________________________________
+| ret | 3 | "00000010" | 0 |
+@end
+
+@define mov
+@define add
+@define ret
+@define mifuncion
+
+@rule mov:
+-> $registers.opcode, IDENT
+-> KW "mov"
+-> IDENT
+-> [NUMBER, STRING]
+-> put 0000 $registers.bits
+-> put &buffer 0000
+-> ebit 0 0 0 0 0 0 0 0
+-> ebit $registers.bits 0 0 0 0 0 0 0
+-> emmit 83847483
+-> emmit $registers.value
+-> emmit #call[mifuncion]
+-> CALL #call[mifuncion]
+-> jmpif add, true
+-> jmpif add, #call[mifuncion]
+-> save "current"
+-> load "current"
+-> reserve "buffer" 16
+-> ldres "buffer" $registers.value
+-> ldres "buffer" &buffer
+-> gtres "buffer"
+-> dlres "buffer"
+-> emitfr 0000 $registers.bits #call[mifuncion]
+0
+&buffer
+00000000
+0000
+0
+0000
+0000000
+0000
+-> emitfrend
+-> JMP add
+-> break
+
+@rule add:
+-> $registers.opcode, NUMBER
+-> KW "add"
+-> put 0000 0000
+-> CALL #call[mifuncion]
+-> error, "No se pudo resolver add"
+-> break
+
+@rule ret:
+-> KW "ret"
+-> emmit 83847483
+-> break

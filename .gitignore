@@ -1,0 +1,8 @@
+# --- VNMA (Vendor Manager) ---
+/vendor/
+/vendor_vnma/
+.vnma_meta/
+vnma_cache/
+__pycache__/
+*.py[cod]
+.env

@@ -1,0 +1,11 @@
+{
+  "lockfile_version": "1.0",
+  "packages": {
+    "gram": {
+      "editable": true,
+      "path": "~/Desktop/Gram",
+      "source": "editable"
+    }
+  },
+  "python_version": "3.14.7"
+}

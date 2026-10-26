@@ -1,0 +1,12 @@
+{
+    "python.analysis.extraPaths": [
+        "./vendor",
+        "../Gram",
+        "C:/Users/Kentucky/Desktop/Gram"
+    ],
+    "python.autoComplete.extraPaths": [
+        "./vendor",
+        "../Gram",
+        "C:/Users/Kentucky/Desktop/Gram"
+    ]
+}
