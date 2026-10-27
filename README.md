@@ -1,3 +1,5 @@
+![RIF Banner](./discentra_centra/badge/banner.jpeg)
+
 # RIF (Retargetable ISA Foundry)
 
 > **Versión:** `1.0.0`  
@@ -100,3 +102,9 @@ La documentación completa del proyecto está disponible en español e inglés:
 * 🏛️ **[Especificación de Arquitectura](ARCHITECTURE.md)**: Nomenclatura y capas de separación.
 * 📦 **[Ejemplos funcionales](examples/README.md)**: Targets reales para AMD64 y ELF64.
 * 📝 **[Registro de Cambios](changelog/README.md)**: Historial de versiones y notas de la versión `1.0.0`.
+
+---
+
+![RIF Footer](./discentra_centra/badge/footer.jpeg)
+
+
