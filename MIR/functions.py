@@ -10,6 +10,8 @@ from threading import RLock
 from types import ModuleType
 from typing import Any, Callable
 
+from rif_limits import resolve_limits
+
 
 class RIFFunctionError(RuntimeError):
     """A function module is missing, failed, or returned an invalid value."""
@@ -133,6 +135,9 @@ def load_function_file(path: str | Path) -> FunctionModule:
     function_path = Path(path).expanduser().resolve()
     if not function_path.is_file():
         raise FileNotFoundError(f"Archivo de funciones no encontrado: {function_path}")
+    maximum = resolve_limits().cap(16 << 20)
+    if function_path.stat().st_size > maximum:
+        raise RIFFunctionError("funcs.py excede el límite de recursos configurado.")
     source = function_path.read_bytes()
     def load() -> ModuleType:
         module_name = _module_name(str(function_path), source)

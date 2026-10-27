@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from Frontend import globals
+from rif_limits import resolve_limits
+
+
+MAX_SOURCE_BYTES = 16 << 20
 
 
 def _children(node: Any) -> tuple[Any, ...]:
@@ -44,14 +48,24 @@ def _requested_path(node: Any) -> str:
     return requested
 
 
-def resolve_source(requested: str, source_path: str | Path | None) -> Path:
+def resolve_source(
+    requested: str,
+    source_path: str | Path | None,
+    project_root: str | Path | None = None,
+) -> Path:
     """Resuelve una inclusión relativa al archivo que contiene ``@LOAD``."""
 
     path = Path(requested).expanduser()
-    if not path.is_absolute():
-        base = Path(source_path).expanduser().parent if source_path else Path.cwd()
-        path = base / path
-    return Path(str(path.resolve(strict=False)))
+    if path.is_absolute():
+        raise ValueError("@LOAD solo acepta rutas relativas.")
+    base = Path(source_path).expanduser().parent if source_path else Path.cwd()
+    candidate = (base / path).resolve(strict=False)
+    root = Path(project_root).expanduser().resolve(strict=False) if project_root else base.resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("@LOAD intenta salir de la raíz del proyecto.") from exc
+    return candidate
 
 
 def load_source(
@@ -60,6 +74,7 @@ def load_source(
     *,
     scope: str = "root",
     source_provider: Any | None = None,
+    project_root: str | Path | None = None,
 ) -> None:
     """Carga y procesa un archivo RIF dentro del alcance solicitado."""
 
@@ -69,7 +84,7 @@ def load_source(
         path_key = provider.resolve_load(source_path, requested)
         path = None
     else:
-        path = resolve_source(requested, source_path)
+        path = resolve_source(requested, source_path, project_root)
         path_key = str(path)
 
     if path_key in globals.ACTIVE_SOURCES:
@@ -85,6 +100,8 @@ def load_source(
 
     globals.ACTIVE_SOURCES.append(path_key)
     try:
+        if path is not None and path.stat().st_size > resolve_limits().cap(MAX_SOURCE_BYTES):
+            raise ValueError(f"La fuente RIF excede el límite de tamaño: {path}")
         source = (
             provider.source_text(path_key)
             if provider is not None
@@ -99,6 +116,7 @@ def load_source(
             load_variants=False,
             scope=scope,
             source_provider=provider,
+            project_root=project_root,
         )
         globals.LOADED_SOURCES[path_key] = "load"
     finally:

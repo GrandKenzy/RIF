@@ -104,20 +104,34 @@ vnma install
 vnma sync-ide
 ```
 
+For a clean clone, copy `vnma.toml.example` to `vnma.toml` before installing.
+The example uses Gram from GitHub; a local checkout may instead use the ignored
+editable `vnma.toml` and `vnma reload` after Gram changes.
+
 ### Command line
 
 The repository includes an ELF64 demonstration that emits a small Linux x86-64 executable. It illustrates binary headers, instruction bytes, positions, and post-processing; it does not mean that RIF is limited to that architecture.
 
 ```powershell
 # Process an existing RIF definition and its input
-python rif.py examples/ELF64/main.rif examples/ELF64/main.asm -o exit
+vnma run rif.py examples/ELF64/main.rif examples/ELF64/main.asm -o exit
 
 # Package a user-defined target
-python rif.py --pack examples/ELF64/main.rif -o target.pack
+vnma run rif.py --pack examples/ELF64/main.rif -o target.pack
 
 # Reuse the packaged rules
-python rif.py target.pack examples/ELF64/main.asm -o exit-from-pack
+vnma run rif.py target.pack examples/ELF64/main.asm -o exit-from-pack
 ```
+
+Resource limits can be selected per invocation, in MiB, for example
+`vnma run rif.py --plimit 16 ...`. The value is saved locally as
+`RIF_PLIMIT_MIB` in `.env`; `.env` and the local VNMA workflow notes are not
+published.
+
+Packages keep absolute source origins only for diagnostics. Execution resolves
+only relative paths inside the project or package, so those origins are never
+used to read files. They can reveal paths from the machine that created the
+package.
 
 See the [examples](examples/README.md) for the expected binary results and how to inspect or run the ELF64 sample.
 
@@ -161,7 +175,7 @@ RIF's documentation is available in English and Spanish:
 - [04. Ejecución y memoria binaria](docs/es/04-Ejecucion/index.md)
 
 Additional resources:
-- [Architecture and terminology](ARCHITECTURE.md)
+- [Architecture and terminology](docs/en/01-Introduction/03-architecture.md)
 - [Functional examples](examples/README.md)
 - [Changelog](changelog/README.md)
 

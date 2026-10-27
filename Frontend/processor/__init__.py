@@ -24,6 +24,7 @@ def process(
     load_variants: bool = True,
     scope: str = "root",
     source_provider: Any | None = None,
+    project_root: str | Path | None = None,
 ) -> None:
     """Recorre y despacha cada nodo producido por el parser."""
     if result is None:
@@ -40,6 +41,15 @@ def process(
             if source_path
             else None
         )
+    resolved_root = (
+        Path(project_root).expanduser().resolve(strict=False)
+        if project_root is not None
+        else (
+            Path(source_path).expanduser().resolve(strict=False).parent
+            if source_path and not raw_source.startswith("pack://")
+            else None
+        )
+    )
     previous_provider = globals.SOURCE_PROVIDER
     owns_provider = source_provider is not None and previous_provider is not source_provider
     if owns_provider:
@@ -106,6 +116,7 @@ def process(
                     source_key,
                     scope="include",
                     source_provider=provider,
+                    project_root=resolved_root,
                 )
             elif name == "INSERT":
                 visit_insert(node, source_path=source_key)
@@ -115,7 +126,11 @@ def process(
                 print("falta por procesar", name)
 
         if load_variants and source_key:
-            _load_variants(source_key, source_provider=provider)
+            _load_variants(
+                source_key,
+                source_provider=provider,
+                project_root=resolved_root,
+            )
     finally:
         if owns_source and source_key in globals.ACTIVE_SOURCES:
             globals.ACTIVE_SOURCES.remove(source_key)

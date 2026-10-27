@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import vendor.__bootstrap__  # From VNMA.
+
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from pack import create_pack
+from rif_limits import ENV_KEY, parse_mib, write_mib
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,6 +19,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--pack",
         metavar="MAIN.RIF",
         help="empaqueta todos los archivos .rif del proyecto",
+    )
+    parser.add_argument(
+        "--plimit",
+        metavar="MiB",
+        type=parse_mib,
+        help="límite de recursos por operación en MiB; también se guarda en .env",
     )
     parser.add_argument(
         "-o",
@@ -38,6 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.plimit is not None:
+        try:
+            write_mib(args.plimit)
+            os.environ[ENV_KEY] = str(args.plimit)
+        except (OSError, ValueError) as exc:
+            print(f"rif: error: {exc}", file=sys.stderr)
+            return 1
     if not args.pack:
         if not args.definition or not args.mir:
             parser.error(

@@ -6,3 +6,5 @@ vnma_cache/
 __pycache__/
 *.py[cod]
 .env
+/vnma.toml
+/skills.md

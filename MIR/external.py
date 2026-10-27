@@ -12,6 +12,7 @@ from gram import lexer
 
 from Frontend import RIF_LANG_SESSION, globals
 from pack import PackReader
+from rif_limits import COMPILATION_LOCK, resolve_limits
 
 from .function_context import RIFFunctionContext
 from .functions import FunctionModule, load_function_file, load_function_source
@@ -89,10 +90,11 @@ def tokenize_mir(source: str, name: str = "<memory>") -> tuple[lexer.TokenType, 
 
     if not isinstance(source, str):
         raise TypeError("El MIR fuente debe ser str.")
-    if len(source.encode("utf-8")) > MAX_MIR_SOURCE_BYTES:
+    if len(source.encode("utf-8")) > resolve_limits().cap(MAX_MIR_SOURCE_BYTES):
         raise MIRInputError("El MIR excede el límite de 64 MiB.")
-    RIF_LANG_SESSION.load()
-    return tuple(RIF_LANG_SESSION.tokenize(source, name))
+    with COMPILATION_LOCK:
+        RIF_LANG_SESSION.load()
+        return tuple(RIF_LANG_SESSION.tokenize(source, name))
 
 
 def prepare_target(path: str | Path) -> PreparedTarget:
@@ -317,7 +319,7 @@ def compile_mir_file(
     input_path = Path(mir_path).expanduser().resolve()
     if not input_path.is_file():
         raise FileNotFoundError(f"Archivo MIR no encontrado: {input_path}")
-    if input_path.stat().st_size > MAX_MIR_SOURCE_BYTES:
+    if input_path.stat().st_size > resolve_limits().cap(MAX_MIR_SOURCE_BYTES):
         raise MIRInputError("El archivo MIR excede el límite de 64 MiB.")
     prepared = _prepare_target(target)
     _config = _require_target_config(prepared.program)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from Frontend import globals
+from rif_limits import resolve_limits
 
 
 _FIELDS = (
@@ -137,6 +138,8 @@ def visit(node: Any) -> None:
             value = _one_literal(item, "NUMBER", field)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise RuntimeError(f"'{field}' debe ser un entero mayor que cero.")
+            if value > resolve_limits().cap(256 << 20) * 8:
+                raise RuntimeError(f"'{field}' excede el límite de recursos configurado.")
             values[field] = value  # type: ignore[assignment]
         elif field in {"casesensitive", "strict", "allowemptysections"}:
             value = _one_literal(item, "BOOL", field)

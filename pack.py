@@ -16,9 +16,11 @@ import re
 import sqlite3
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from rif_limits import resolve_limits
 
 
 PACK_FORMAT = "RIF_PACK"
@@ -61,6 +63,7 @@ class PackManifest:
     functions: PackEntry | None = None
     compiled: PackEntry | None = None
     assets: tuple[PackEntry, ...] = ()
+    origins: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -110,6 +113,7 @@ class PackManifest:
                 }
                 for entry in self.assets
             ],
+            "origins": dict(sorted(self.origins.items())),
         }
 
     @classmethod
@@ -223,6 +227,13 @@ class PackManifest:
                 raise ValueError("El manifiesto contiene metadata de asset inválida.")
             assets.append(PackEntry(asset_path, asset_size, asset_sha256))
 
+        raw_origins = data.get("origins", {})
+        if not isinstance(raw_origins, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) and value
+            for key, value in raw_origins.items()
+        ):
+            raise ValueError("El manifiesto contiene metadata de origen inválida.")
+
         content_sha256 = data.get("content_sha256")
         if not isinstance(content_sha256, str) or len(content_sha256) != 64:
             raise ValueError("El manifiesto no contiene una huella de contenido válida.")
@@ -238,6 +249,7 @@ class PackManifest:
             functions=functions,
             compiled=compiled,
             assets=tuple(assets),
+            origins=dict(raw_origins),
         )
 
 
@@ -249,11 +261,16 @@ def _project_files(entrypoint: Path) -> tuple[tuple[str, Path], ...]:
     """Collect all local ``.rif`` files with stable POSIX paths."""
 
     root = entrypoint.parent
+    source_limit = resolve_limits().cap(MAX_SOURCE_SIZE)
     collected: list[tuple[str, Path]] = []
     for candidate in root.rglob("*"):
         if not candidate.is_file() or candidate.suffix.lower() != ".rif":
             continue
         resolved = candidate.resolve(strict=True)
+        if resolved.stat().st_size > source_limit:
+            raise ValueError(
+                f"La fuente RIF '{candidate}' excede el límite de {source_limit} bytes."
+            )
         try:
             relative = resolved.relative_to(root)
         except ValueError as exc:
@@ -261,7 +278,11 @@ def _project_files(entrypoint: Path) -> tuple[tuple[str, Path], ...]:
                 f"El archivo RIF está fuera del proyecto: {candidate}"
             ) from exc
         relative_name = PurePosixPath(relative.as_posix()).as_posix()
+        if any(existing == relative_name for existing, _ in collected):
+            continue
         collected.append((relative_name, resolved))
+        if len(collected) > MAX_SOURCE_FILES:
+            raise ValueError("El proyecto excede el límite de archivos RIF.")
 
     expected = entrypoint.relative_to(root).as_posix()
     if expected not in {relative for relative, _ in collected}:
@@ -365,6 +386,9 @@ def _collect_assets(
     """Collect binary files named by ``.file`` insert directives."""
 
     assets: dict[str, bytes] = {}
+    asset_limit = resolve_limits().cap(MAX_ASSET_SIZE)
+    total_limit = resolve_limits().cap(MAX_TOTAL_UNCOMPRESSED)
+    total = 0
     for relative, path in files:
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             match = _INSERT_FILE_RE.match(line)
@@ -387,11 +411,18 @@ def _collect_assets(
                     f"No se encontró el asset de .file en {relative}:{line_number}: {candidate}"
                 )
             key = PurePosixPath(asset_relative.as_posix()).as_posix()
+            if candidate.stat().st_size > asset_limit:
+                raise ValueError(
+                    f"El asset '{candidate}' excede el límite de {asset_limit} bytes."
+                )
             data = candidate.read_bytes()
             previous = assets.get(key)
             if previous is not None and previous != data:
                 raise ValueError(f"El asset '{key}' fue definido con bytes distintos.")
             assets[key] = data
+            total += len(data) if previous is None else 0
+            if len(assets) > MAX_ASSET_FILES or total > total_limit:
+                raise ValueError("Los assets exceden el límite del paquete.")
     return assets
 
 
@@ -443,6 +474,7 @@ def _manifest_for(
     compiled_data: bytes | None = None,
     function_data: bytes | None = None,
     asset_data: dict[str, bytes] | None = None,
+    origins: dict[str, str] | None = None,
 ) -> PackManifest:
     load_graph, dependency_order = _dependency_index(entrypoint, files)
     entries: list[PackEntry] = []
@@ -497,6 +529,7 @@ def _manifest_for(
             else None
         ),
         assets=asset_entries,
+        origins=dict(origins or {}),
     )
 
 
@@ -598,6 +631,9 @@ def create_pack(
     if entrypoint.suffix.lower() != ".rif":
         raise ValueError(f"El entrypoint del paquete debe ser .rif: {entrypoint}")
 
+    limits = resolve_limits()
+    source_limit = limits.cap(MAX_SOURCE_SIZE)
+    total_limit = limits.cap(MAX_TOTAL_UNCOMPRESSED)
     files = _project_files(entrypoint)
     asset_data = _collect_assets(files, entrypoint.parent)
     function_path = entrypoint.parent / "funcs.py"
@@ -608,13 +644,34 @@ def create_pack(
             resolved_function.relative_to(entrypoint.parent.resolve())
         except ValueError as exc:
             raise ValueError("funcs.py está fuera del proyecto.") from exc
+        if resolved_function.stat().st_size > source_limit:
+            raise ValueError("funcs.py excede el límite de tamaño configurado.")
         function_data = resolved_function.read_bytes()
+    source_total = sum(path.stat().st_size for _, path in files)
+    total_size = source_total + sum(len(data) for data in asset_data.values())
+    if function_data is not None:
+        total_size += len(function_data)
+    if total_size > total_limit:
+        raise ValueError("El contenido del paquete excede el límite configurado.")
+    origins = {
+        f"{SOURCE_PREFIX}{relative}": str(path)
+        for relative, path in files
+    }
+    origins.update(
+        {
+            f"assets/{relative}": str((entrypoint.parent / relative).resolve())
+            for relative in asset_data
+        }
+    )
+    if function_data is not None:
+        origins["funcs.py"] = str(function_path.resolve())
     input_manifest = _manifest_for(
         entrypoint,
         files,
         None,
         function_data,
         asset_data,
+        origins,
     )
     compiled_data = (
         _build_compiled_database(entrypoint, input_manifest.content_sha256)
@@ -627,6 +684,7 @@ def create_pack(
         compiled_data,
         function_data,
         asset_data,
+        origins,
     )
     target = _canonical_path(output) if output is not None else entrypoint.with_suffix(".pack")
     protected = {entrypoint, *(path for _, path in files)}
@@ -730,11 +788,12 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
         names = [info.filename for info in infos]
         if len(names) != len(set(names)):
             raise ValueError("El paquete contiene nombres ZIP duplicados.")
-        if sum(info.file_size for info in infos) > MAX_TOTAL_UNCOMPRESSED:
+        limits = resolve_limits()
+        if sum(info.file_size for info in infos) > limits.cap(MAX_TOTAL_UNCOMPRESSED):
             raise ValueError("El paquete excede el tamaño total permitido.")
         try:
             manifest_bytes = _read_member(
-                archive, MANIFEST_NAME, maximum=MAX_MANIFEST_SIZE
+                archive, MANIFEST_NAME, maximum=limits.cap(MAX_MANIFEST_SIZE)
             )
             manifest_data = json.loads(manifest_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -755,6 +814,8 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
             declared.add(manifest.compiled.path)
         if manifest.functions is not None:
             declared.add(manifest.functions.path)
+        if any(path not in declared for path in manifest.origins):
+            raise ValueError("El manifiesto contiene orígenes no declarados.")
         if set(names) != declared:
             extras = sorted(set(names) - declared)
             missing = sorted(declared - set(names))
@@ -770,10 +831,10 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
                 not entry.path.startswith(SOURCE_PREFIX)
                 or normalized.is_absolute()
                 or ".." in normalized.parts
-                or entry.size > MAX_SOURCE_SIZE
+                or entry.size > resolve_limits().cap(MAX_SOURCE_SIZE)
             ):
                 raise ValueError(f"Ruta o tamaño de fuente inválido: {entry.path}")
-            data = _read_member(archive, entry.path, maximum=MAX_SOURCE_SIZE)
+            data = _read_member(archive, entry.path, maximum=limits.cap(MAX_SOURCE_SIZE))
             if len(data) != entry.size or (verify and _sha256(data) != entry.sha256):
                 raise ValueError(f"Hash o tamaño inválido para {entry.path}")
 
@@ -794,9 +855,9 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
 
         if manifest.functions is not None:
             functions = manifest.functions
-            if functions.path != "funcs.py" or functions.size > MAX_SOURCE_SIZE:
+            if functions.path != "funcs.py" or functions.size > resolve_limits().cap(MAX_SOURCE_SIZE):
                 raise ValueError("Metadata de funcs.py inválida en el paquete.")
-            data = _read_member(archive, functions.path, maximum=MAX_SOURCE_SIZE)
+            data = _read_member(archive, functions.path, maximum=limits.cap(MAX_SOURCE_SIZE))
             if len(data) != functions.size or (
                 verify and _sha256(data) != functions.sha256
             ):
@@ -808,10 +869,10 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
                 not asset.path.startswith("assets/")
                 or normalized.is_absolute()
                 or ".." in normalized.parts
-                or asset.size > MAX_ASSET_SIZE
+                or asset.size > resolve_limits().cap(MAX_ASSET_SIZE)
             ):
                 raise ValueError(f"Ruta o tamaño de asset inválido: {asset.path}")
-            data = _read_member(archive, asset.path, maximum=MAX_ASSET_SIZE)
+            data = _read_member(archive, asset.path, maximum=limits.cap(MAX_ASSET_SIZE))
             if len(data) != asset.size or (verify and _sha256(data) != asset.sha256):
                 raise ValueError(f"Hash o tamaño inválido para {asset.path}")
 
@@ -826,9 +887,9 @@ def read_pack(path: str | Path, *, verify: bool = True) -> PackManifest:
 
         if manifest.compiled is not None:
             compiled = manifest.compiled
-            if compiled.path != "compiled/program.sqlite3" or compiled.size > MAX_COMPILED_SIZE:
+            if compiled.path != "compiled/program.sqlite3" or compiled.size > limits.cap(MAX_COMPILED_SIZE):
                 raise ValueError("Ruta o tamaño de base compilada inválida.")
-            data = _read_member(archive, compiled.path, maximum=MAX_COMPILED_SIZE)
+            data = _read_member(archive, compiled.path, maximum=limits.cap(MAX_COMPILED_SIZE))
             if len(data) != compiled.size or (verify and _sha256(data) != compiled.sha256):
                 raise ValueError("Hash o tamaño inválido para la base SQLite compilada.")
             if _compiled_source_fingerprint(data) != manifest.content_sha256:
@@ -885,7 +946,7 @@ class PackReader:
 
         source_key = self._source_key(source)
         requested_path = PurePosixPath(requested.replace("\\", "/"))
-        if requested_path.is_absolute() or ".." in requested_path.parts:
+        if Path(requested).is_absolute() or requested_path.is_absolute() or ".." in requested_path.parts:
             raise ValueError(f"@LOAD intenta salir del paquete: {requested!r}")
         candidate = posixpath.normpath(
             str(PurePosixPath(PurePosixPath(source_key).parent) / requested_path)
@@ -904,6 +965,9 @@ class PackReader:
     def resolve_variant(self, name: str, searching: str = "") -> str:
         directory = PurePosixPath(SOURCE_PREFIX)
         if searching:
+            searching_path = PurePosixPath(searching.replace("\\", "/"))
+            if Path(searching).is_absolute() or searching_path.is_absolute() or ".." in searching_path.parts:
+                raise ValueError(".searching solo acepta una carpeta relativa dentro del paquete.")
             directory /= PurePosixPath(searching.replace("\\", "/"))
         key = (directory / f"{name}.rif").as_posix()
         if key not in self._known_sources:
@@ -916,7 +980,7 @@ class PackReader:
         return _read_member(
             self._archive,
             self._source_key(source),
-            maximum=MAX_SOURCE_SIZE,
+            maximum=resolve_limits().cap(MAX_SOURCE_SIZE),
         )
 
     def source_text(self, source: str | Path | None = None) -> str:
@@ -936,7 +1000,7 @@ class PackReader:
         return _read_member(
             self._archive,
             self.manifest.compiled.path,
-            maximum=MAX_COMPILED_SIZE,
+            maximum=resolve_limits().cap(MAX_COMPILED_SIZE),
         )
 
     def function_bytes(self) -> bytes | None:
@@ -947,7 +1011,7 @@ class PackReader:
         return _read_member(
             self._archive,
             self.manifest.functions.path,
-            maximum=MAX_SOURCE_SIZE,
+            maximum=resolve_limits().cap(MAX_SOURCE_SIZE),
         )
 
     def function_source(self) -> str | None:
@@ -959,13 +1023,19 @@ class PackReader:
 
         return {
             path.removeprefix("assets/"): _read_member(
-                self._archive, path, maximum=MAX_ASSET_SIZE
+                self._archive, path, maximum=resolve_limits().cap(MAX_ASSET_SIZE)
             )
             for path in sorted(self._known_assets)
         }
 
     def virtual_function_path(self) -> str:
         return f"pack://{self.path.as_posix()}::funcs.py"
+
+    @property
+    def origins(self) -> dict[str, str]:
+        """Absolute creator paths kept for diagnostics only."""
+
+        return dict(self.manifest.origins)
 
     @property
     def has_compiled_database(self) -> bool:

@@ -9,6 +9,11 @@
 
 ## Current release
 
+### [`1.0.1`](changelog_1.0.1.md) · Security hardening and resource controls
+
+RIF `1.0.1` strengthens path validation, resource controls, package safety,
+concurrent compilation isolation, and verification coverage.
+
 ### [`1.0.0`](changelog_1.0.0.md) · Initial stable release
 
 RIF `1.0.0` provides the complete definition-to-binary pipeline, including
@@ -19,6 +24,7 @@ variants, Python functions, and independent physical and virtual memory state.
 
 | Version | Date | Main focus | Notes |
 | --- | --- | --- | --- |
+| [`1.0.1`](changelog_1.0.1.md) | 2026-10-26 | Security hardening and resource controls | Current |
 | [`1.0.0`](changelog_1.0.0.md) | 2026-10-26 | Complete RIF compilation pipeline | Current |
 
 ## How to read these notes

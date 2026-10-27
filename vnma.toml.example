@@ -1,9 +1,9 @@
 [project]
 name = "RIF"
-version = "1.0.0"
+version = "1.0.1"
 
 [dependencies]
-gram = { path = "~/Desktop/Gram", editable = true }
+gram-framework = { git = "https://github.com/GrandKenzy/Gram.git", branch = "main" }
 
 [dev-dependencies]
 

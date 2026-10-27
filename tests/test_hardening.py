@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from MIR import compile_definition, compile_mir_file, compile_mir_source, prepare_target
 from MIR.artifacts import ArtifactError, _file_payload
 from MIR.runtime import RIFRuntimeError
+from Frontend.processor.sources import resolve_source
 from pack import create_pack, read_pack
+from rif_limits import resolve_limits, write_mib
 
 
 CONFIG = '''\
@@ -46,6 +51,80 @@ CONFIG = '''\
 
 
 class HardeningTests(unittest.TestCase):
+    def test_limits_preserve_env_and_follow_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            env_path.write_text("PYTHONPATH=./vendor;../Gram\n", encoding="utf-8")
+            write_mib(2, env_path)
+            self.assertIn("PYTHONPATH=./vendor;../Gram", env_path.read_text(encoding="utf-8"))
+            with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("RIF_PLIMIT_MIB", None)
+                self.assertEqual(resolve_limits(env_path=env_path).bytes, 2 << 20)
+                os.environ["RIF_PLIMIT_MIB"] = "3"
+                self.assertEqual(resolve_limits(env_path=env_path).bytes, 3 << 20)
+
+    def test_loose_loads_reject_absolute_and_escape_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            main = root / "main.rif"
+            main.write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "rutas relativas"):
+                resolve_source(str(root / "other.rif"), main, root)
+            with self.assertRaisesRegex(ValueError, "salir"):
+                resolve_source("../other.rif", main, root)
+
+    def test_pack_manifest_records_origins_without_using_them(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            package = root / "target.pack"
+            target.write_text("@define safe\n", encoding="utf-8")
+            create_pack(target, package)
+            manifest = read_pack(package)
+            self.assertEqual(manifest.origins["sources/main.rif"], str(target.resolve()))
+            self.assertEqual(manifest.entrypoint, "sources/main.rif")
+
+    def test_concurrent_compilations_keep_gram_contexts_isolated(self) -> None:
+        first_source = CONFIG.format(wordsize=8) + '''\
+@table bytes
+| name | bits |
+_
+| byte | 8 |
+@end
+@rule emit_byte:
+-> IDENT
+-> emmit $bytes.bits
+'''
+        second_source = CONFIG.format(wordsize=16) + '''\
+@table words
+| name | bits |
+_
+| word | 16 |
+@end
+@rule emit_word:
+-> IDENT
+-> emmit $words.bits
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_path = root / "first.rif"
+            second_path = root / "second.rif"
+            first_path.write_text(first_source, encoding="utf-8")
+            second_path.write_text(second_source, encoding="utf-8")
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first, second = tuple(
+                    executor.map(compile_definition, (first_path, second_path))
+                )
+
+            self.assertEqual(first.context.config.wordsize, 8)
+            self.assertEqual(second.context.config.wordsize, 16)
+            self.assertIn("bytes", first.context.tables)
+            self.assertIn("words", second.context.tables)
+            self.assertIn("emit_byte", first.rules)
+            self.assertIn("emit_word", second.rules)
+
     def test_prepared_targets_do_not_share_context(self) -> None:
         first_source = CONFIG.format(wordsize=8) + '''\
 @table registers

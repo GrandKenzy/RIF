@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from Frontend import globals
+from rif_limits import resolve_limits
 
-from .bitbuffer import BitBuffer, BitLayout
 from .emitter import BitEmitter
 from .functions import FunctionModule
 from .output import AssemblyImage
 from .runtime import RIFMachine
+
+
+MAX_ARTIFACT_BYTES = 128 << 20
 
 
 class ArtifactError(RuntimeError):
@@ -35,6 +38,8 @@ def _hex_to_bytes(value: str) -> bytes:
     normalized = value.removeprefix("0x").replace(" ", "").replace("_", "")
     if not normalized or len(normalized) % 2 or any(char not in "0123456789abcdefABCDEF" for char in normalized):
         raise ArtifactError(".bytes requiere una cadena hexadecimal de bytes completos.")
+    if len(normalized) // 2 > resolve_limits().cap(MAX_ARTIFACT_BYTES):
+        raise ArtifactError(".bytes excede el límite de recursos configurado.")
     return bytes.fromhex(normalized)
 
 
@@ -43,13 +48,18 @@ def _binary_value(value: str, config: globals.ConfigData) -> BinaryValue:
         raise ArtifactError("El payload binario debe ser un string.")
     if not value or any(bit not in "01" for bit in value):
         raise ArtifactError("El payload binario debe contener solamente 0 y 1.")
+    maximum_bits = resolve_limits().cap(MAX_ARTIFACT_BYTES) * 8
+    if len(value) > maximum_bits:
+        raise ArtifactError("El payload binario excede el límite de recursos configurado.")
     if len(value) % 8:
         return BinaryValue(b"", len(value))
-    buffer = BitBuffer(
-        BitLayout(bit_order=config.bitorder, byte_order=config.endianness)
+    data = bytes(
+        int(value[offset : offset + 8], 2)
+        for offset in range(0, len(value), 8)
     )
-    BitEmitter(buffer=buffer, wordsize=config.wordsize).emit(value, len(value))
-    return BinaryValue(buffer.to_bytes(), len(value))
+    if config.bitorder == "lsb":
+        data = data[::-1]
+    return BinaryValue(data, len(value))
 
 
 def _file_payload(
@@ -83,6 +93,9 @@ def _file_payload(
         raise ArtifactError(f"El asset '{path_value}' intenta salir del proyecto.") from exc
     if not candidate.is_file():
         raise FileNotFoundError(f"No se encontró el asset binario: {candidate}")
+    maximum = resolve_limits().cap(MAX_ARTIFACT_BYTES)
+    if candidate.stat().st_size > maximum:
+        raise ArtifactError("El asset excede el límite de recursos configurado.")
     return candidate.read_bytes()
 
 
@@ -105,11 +118,9 @@ def apply_inserts(
             binary = _binary_value(str(insert.value), config)
             emitter.emit(str(insert.value), binary.bit_width)
         elif insert.kind == "bytes":
-            for byte in _hex_to_bytes(str(insert.value)):
-                emitter.emit(byte, 8)
+            emitter.emit_bytes(_hex_to_bytes(str(insert.value)))
         elif insert.kind == "file":
-            for byte in _file_payload(str(insert.value), insert.source_path, asset_map):
-                emitter.emit(byte, 8)
+            emitter.emit_bytes(_file_payload(str(insert.value), insert.source_path, asset_map))
         elif insert.kind == "call":
             if function_module is None:
                 raise ArtifactError(
@@ -120,8 +131,7 @@ def apply_inserts(
                 binary = _binary_value(result, config)
                 emitter.emit(result, binary.bit_width)
             else:
-                for byte in result:
-                    emitter.emit(byte, 8)
+                emitter.emit_bytes(bytes(result))
         else:
             raise ArtifactError(f"Tipo de insert desconocido: {insert.kind}.")
     image.invalidate_layout()
@@ -262,7 +272,10 @@ def _encode_value(
             raise ArtifactError("El ancho del payload no coincide con .rplc.")
         return data
     selected_width = width or value.width
-    if selected_width <= 0 or value.value < 0 or value.value >= (1 << (selected_width * 8)):
+    maximum = resolve_limits().cap(MAX_ARTIFACT_BYTES)
+    if selected_width <= 0 or selected_width > maximum:
+        raise ArtifactError("El ancho del parche excede el límite de recursos configurado.")
+    if value.value < 0 or value.value >= (1 << (selected_width * 8)):
         raise ArtifactError("El escalar no cabe en el ancho del parche.")
     return value.value.to_bytes(selected_width, config.endianness, signed=False)
 

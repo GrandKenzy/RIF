@@ -10,6 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from Frontend import globals
+from rif_limits import resolve_limits
+
+
+MAX_SOURCE_BYTES = 16 << 20
 
 
 def canonical_path(path: str | Path) -> str:
@@ -26,7 +30,11 @@ def _root_directory(root_path: Path) -> Path:
     return root_path.parent
 
 
-def resolve_variant(name: str, root_path: str | Path) -> Path:
+def resolve_variant(
+    name: str,
+    root_path: str | Path,
+    project_root: str | Path | None = None,
+) -> Path:
     """Resuelve ``<name>.rif`` respetando ``.searching`` del linker."""
 
     root = Path(root_path).expanduser()
@@ -42,14 +50,23 @@ def resolve_variant(name: str, root_path: str | Path) -> Path:
 
     directory = _root_directory(root)
     if isinstance(searching, str) and searching:
+        if Path(searching).is_absolute() or ".." in Path(searching).parts:
+            raise RuntimeError(".searching solo acepta una carpeta relativa dentro del proyecto.")
         directory = directory / searching
-    return Path(canonical_path(directory / f"{name}.rif"))
+    candidate = Path(canonical_path(directory / f"{name}.rif"))
+    boundary = Path(project_root).expanduser().resolve(strict=False) if project_root else _root_directory(root).resolve(strict=False)
+    try:
+        candidate.relative_to(boundary)
+    except ValueError as exc:
+        raise RuntimeError("La variante intenta salir de la raíz del proyecto.") from exc
+    return candidate
 
 
 def _load_variant(
     variant: globals.AsmVariantData,
     root_path: Path | str,
     source_provider=None,
+    project_root: str | Path | None = None,
 ) -> None:
     """Carga recursivamente el archivo asociado a una variante."""
 
@@ -58,7 +75,7 @@ def _load_variant(
         path_key = source_provider.resolve_variant(variant.name, searching)
         path = None
     else:
-        path = resolve_variant(variant.name, root_path)
+        path = resolve_variant(variant.name, root_path, project_root)
         path_key = canonical_path(path)
 
     if path_key in globals.ACTIVE_SOURCES:
@@ -78,6 +95,8 @@ def _load_variant(
 
     globals.ACTIVE_SOURCES.append(path_key)
     try:
+        if path is not None and path.stat().st_size > resolve_limits().cap(MAX_SOURCE_BYTES):
+            raise ValueError(f"La variante excede el límite de tamaño: {path}")
         source = (
             source_provider.source_text(path_key)
             if source_provider is not None
@@ -92,6 +111,7 @@ def _load_variant(
             load_variants=False,
             scope="variant",
             source_provider=source_provider,
+            project_root=project_root,
         )
         globals.LOADED_SOURCES[path_key] = variant.name
     finally:
@@ -117,7 +137,11 @@ def validate_variant_rules() -> None:
             )
 
 
-def load_variants(root_path: str | Path, source_provider=None) -> None:
+def load_variants(
+    root_path: str | Path,
+    source_provider=None,
+    project_root: str | Path | None = None,
+) -> None:
     """Carga todos los archivos de variantes y valida sus reglas."""
 
     root = Path(root_path).expanduser()
@@ -126,7 +150,12 @@ def load_variants(root_path: str | Path, source_provider=None) -> None:
         globals.LOADED_SOURCES[root_key] = "root"
 
     for variant in tuple(globals.ASM_VARIANTS.values()):
-        _load_variant(variant, root, source_provider=source_provider)
+        _load_variant(
+            variant,
+            root,
+            source_provider=source_provider,
+            project_root=project_root,
+        )
     validate_variant_rules()
 
 

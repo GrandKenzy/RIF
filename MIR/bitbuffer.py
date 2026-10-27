@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, Literal
 
+from rif_limits import resolve_limits
+
 
 BitOrder = Literal["msb", "lsb"]
 ByteOrder = Literal["little", "big"]
@@ -83,7 +85,8 @@ class BitBuffer:
         if max_bits <= 0:
             raise ValueError("max_bits debe ser mayor que cero.")
         self.layout = layout or BitLayout()
-        self.max_bits = max_bits
+        configured_max_bits = resolve_limits().cap(MAX_BUFFER_BITS // 8) * 8
+        self.max_bits = min(max_bits, configured_max_bits)
         self._storage = bytearray()
         self._bit_length = 0
         self._regions: dict[str, BitSpan] = {}
@@ -105,6 +108,8 @@ class BitBuffer:
             raise ValueError("El offset no puede ser negativo.")
         if width < 0:
             raise ValueError("El ancho no puede ser negativo.")
+        if width > self.max_bits:
+            raise ValueError(f"El ancho excede el límite de {self.max_bits} bits.")
         if allocated and offset + width > self._bit_length:
             raise ValueError(
                 f"El rango [{offset}, {offset + width}) está fuera del buffer "
@@ -217,6 +222,7 @@ class BitBuffer:
 
         if width <= 0 or width % 8:
             raise ValueError("append_int requiere un ancho positivo múltiplo de 8.")
+        self._check_range(0, width, allocated=False)
         self._check_value(value, width)
         data = value.to_bytes(width // 8, self.layout.byte_order, signed=False)
         offset = self._bit_length
@@ -228,6 +234,22 @@ class BitBuffer:
             for byte in data:
                 self.append_bits(byte, 8)
         return BitSpan(offset, width)
+
+    def append_bytes(self, data: bytes | bytearray | memoryview) -> BitSpan | None:
+        """Append byte-aligned data without visiting every individual bit."""
+
+        payload = bytes(data)
+        if not payload:
+            return None
+        if self._bit_length % 8:
+            for byte in payload:
+                self.append_bits(byte, 8)
+            return BitSpan(self._bit_length - len(payload) * 8, len(payload) * 8)
+        offset = self._bit_length
+        self._ensure_capacity(offset + len(payload) * 8)
+        self._storage[offset // 8 : offset // 8 + len(payload)] = payload
+        self._bit_length += len(payload) * 8
+        return BitSpan(offset, len(payload) * 8)
 
     def read_int(self, offset: int, width: int) -> int:
         """Read a byte-oriented integer using the configured byte order."""

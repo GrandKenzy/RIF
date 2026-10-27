@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from .bitbuffer import BitBuffer, BitLayout, BitQuery, BitSpan
+from rif_limits import resolve_limits
+
+from .bitbuffer import MAX_BUFFER_BITS, BitBuffer, BitLayout, BitQuery, BitSpan
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,7 @@ def field(value: int | str | BitField, width: int | None = None) -> BitField:
     """Normalize a literal while preserving binary strings such as ``0000``."""
 
     if isinstance(value, BitField):
+        _validate_width(value.width)
         if width is not None and value.width != width:
             raise ValueError("El ancho del campo no coincide con el esperado.")
         return value
@@ -38,6 +41,7 @@ def field(value: int | str | BitField, width: int | None = None) -> BitField:
         if not value or any(bit not in "01" for bit in value):
             raise ValueError("Un campo binario debe contener solamente 0 y 1.")
         inferred = len(value)
+        _validate_width(inferred)
         if width is not None and inferred != width:
             raise ValueError(
                 f"El campo binario tiene {inferred} bits; se esperaban {width}."
@@ -47,9 +51,18 @@ def field(value: int | str | BitField, width: int | None = None) -> BitField:
         raise TypeError("El campo debe ser un entero, string binario o BitField.")
     if width is None:
         raise ValueError("Un entero requiere un ancho explícito.")
+    _validate_width(width)
     if value < 0 or value >= (1 << width):
         raise ValueError(f"El valor {value} no cabe en {width} bits.")
     return BitField(value, width)
+
+
+def _validate_width(width: int) -> None:
+    if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
+        raise ValueError("El ancho debe ser un entero positivo.")
+    maximum = resolve_limits().cap(MAX_BUFFER_BITS // 8) * 8
+    if width > maximum:
+        raise ValueError(f"El ancho excede el límite de {maximum} bits.")
 
 
 class BitEmitter:
@@ -114,6 +127,15 @@ class BitEmitter:
         else:
             span = self.buffer.append_bits(item.value, item.width)
         self._advance_virtual(item.width)
+        return span
+
+    def emit_bytes(self, data: bytes | bytearray | memoryview) -> BitSpan | None:
+        """Append aligned bytes using the buffer's bulk path."""
+
+        payload = bytes(data)
+        span = self.buffer.append_bytes(payload)
+        if span is not None:
+            self._advance_virtual(span.width)
         return span
 
     def read_bits(self, offset: int, width: int) -> int:

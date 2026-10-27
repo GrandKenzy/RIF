@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from Frontend import globals
+from rif_limits import resolve_limits
 
 from .bitbuffer import BitBuffer, BitLayout
 from .emitter import BitEmitter
@@ -105,9 +106,10 @@ class AssemblyImage:
             section = self.sections[name]
             data = section.buffer.to_bytes()
             section.file_offset = self._align(file_cursor, section.alignment)
-            if section.file_offset + len(data) > MAX_IMAGE_BYTES:
+            maximum = resolve_limits().cap(MAX_IMAGE_BYTES)
+            if section.file_offset + len(data) > maximum:
                 raise ValueError(
-                    f"La imagen excede el límite de {MAX_IMAGE_BYTES} bytes."
+                    f"La imagen excede el límite de {maximum} bytes."
                 )
             if name in self.config.sectionvaddr:
                 section.virtual_base = self.config.sectionvaddr[name]

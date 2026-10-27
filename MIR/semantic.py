@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from gram import lexer
+from rif_limits import resolve_limits
 
 from Frontend import globals
 
@@ -285,6 +286,8 @@ def _validate_instruction(
     elif instruction.opcode == "emmit":
         operand = operands[0]
         if operand.kind == "number" and context.config is not None:
+            if context.config.wordsize > resolve_limits().cap(256 << 20) * 8:
+                raise _error(instruction, "wordsize excede el límite de recursos configurado.")
             if operand.value >= (1 << context.config.wordsize):
                 raise _error(
                     instruction,

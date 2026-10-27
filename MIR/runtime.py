@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from gram import lexer
+from rif_limits import resolve_limits
 
 from .emitter import BitEmitter, BitField
 from .function_context import RIFFunctionContext
@@ -15,6 +16,7 @@ from .semantic import RuleRef, TableLookupRef, TableRef, TokenRef
 
 
 MAX_RULE_CALL_DEPTH = 256
+MAX_DYNAMIC_WIDTH_BYTES = 256 << 20
 
 
 class RIFRuntimeError(RuntimeError):
@@ -319,10 +321,14 @@ class RIFMachine:
             raise RIFRuntimeError("FIT requiere un ancho entero.")
         if value <= 0 or value % 2:
             raise RIFRuntimeError("FIT requiere un ancho positivo y múltiplo de dos.")
+        if value > resolve_limits().cap(MAX_DYNAMIC_WIDTH_BYTES) * 8:
+            raise RIFRuntimeError("FIT excede el límite de recursos configurado.")
         return value
 
     @staticmethod
     def _immediate_fits(token: lexer.TokenType, width: int) -> bool:
+        if width <= 0 or width > resolve_limits().cap(MAX_DYNAMIC_WIDTH_BYTES) * 8:
+            raise RIFRuntimeError("El ancho inmediato excede el límite de recursos configurado.")
         if token.token not in {lexer.Token.NUMBER, lexer.Token.DECIMAL, lexer.Token.STRING}:
             raise RIFRuntimeError(
                 "FIT requiere que el token actual sea NUMBER, DECIMAL o STRING."
@@ -340,6 +346,8 @@ class RIFMachine:
 
     @staticmethod
     def _immediate_bits(token: lexer.TokenType, width: int, *, truncate: bool) -> int:
+        if width <= 0 or width > resolve_limits().cap(MAX_DYNAMIC_WIDTH_BYTES) * 8:
+            raise RIFRuntimeError("El ancho inmediato excede el límite de recursos configurado.")
         if not RIFMachine._immediate_fits(token, width) and not truncate:
             value = token.value
             if token.token == lexer.Token.STRING:
