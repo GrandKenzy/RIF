@@ -27,14 +27,16 @@ Los paquetes copian los archivos de `.file` dentro de entradas opacas en
 `assets/` y registran sus hashes. Empaquetar nunca ejecuta un insert ni un
 payload Python; el asset se resuelve al compilar usando el `.pack`.
 
-## Imágenes perforadas precompiladas (`.pci`)
+## Fuentes e imágenes perforadas precompiladas (`.pci`)
 
-Una PCP-I es una imagen binaria pura precompilada con posiciones reservadas
-(*pits*) que otra fase puede completar sin cambiar el tamaño de la imagen. Es
-adecuada para headers de tamaño acotado, como ELF, PE o GBA; no sustituye a un
-`.pack`, porque el `.pack` contiene la definición de RIF y la información de
-compilación, mientras que una PCP-I contiene una imagen binaria lista para
-rellenarse.
+Una PCP-I final es una imagen binaria con posiciones reservadas (*pits*) que
+otra fase puede completar sin cambiar el tamaño de la imagen. Es adecuada para
+headers de tamaño acotado, como ELF, PE o GBA.
+
+El archivo que recibe `--comp-pcpi` es una fuente RIF textual. RIF genera la
+imagen mediante sus instrucciones normales y el adaptador PCP-I empaqueta el
+header, el padding y la tabla de pits. La salida compilada usa `.pcic` por
+defecto; no se copia una PCP-I binaria hacia otra PCP-I binaria.
 
 La disposición física de una PCP-I v1 es:
 
@@ -69,7 +71,7 @@ uint16 size
 
 `address` es un desplazamiento relativo al inicio de la imagen binaria. Por
 tanto, un pit con `address = 0` comienza en `HEADER + 0`, donde `HEADER` es la
-base de esa imagen y no el inicio del archivo `.pci`. `size` indica cuántos
+base de esa imagen y no el inicio del archivo `.pcic`. `size` indica cuántos
 bytes puede escribir la fase que completa la PCP-I. En v1 las entradas no
 desplazan bytes: el rango `[address, address + size)` debe caber dentro de la
 imagen, y los pits no deben solaparse.
@@ -82,7 +84,7 @@ determinista para que la misma PCP-I produzca siempre el mismo layout.
 
 ### Compilación
 
-Una fuente `.pci` debe validarse y compilarse antes de usarse:
+Una fuente `.pci` debe compilarse antes de usarse:
 
 ```powershell
 rif --comp-pcpi image.pci
@@ -90,9 +92,35 @@ rif --comp-pcpi image.pci -o build/image.pcic
 ```
 
 Sin `-o`, la salida se deriva como `image.pcic`. La compilación conserva el
-padding, la imagen y la tabla de pits; `.pcic` identifica el artefacto ya
-compilado. El compilador rechaza tamaños inconsistentes, pits vacíos,
-solapamientos, rangos fuera de la imagen y entradas adicionales.
+padding, la imagen y la tabla de pits. El compilador rechaza tamaños
+inconsistentes, pits vacíos, solapamientos, rangos fuera de la imagen y
+entradas adicionales.
+
+### Sintaxis RIF
+
+La fuente debe contener una `@config` normal y una Rule llamada `pcpi` o
+`image`. Si solo existe una Rule, se usa automáticamente. Las instrucciones
+RIF construyen la imagen; cada `reserve` físico alineado a bytes se convierte
+en un pit:
+
+```rif
+@rule pcpi:
+-> emitfr "01111111" "01000100"
+-> emitfrend
+-> reserve "entry_point" 16
+```
+
+`reserve "entry_point" 16` emite dos bytes en cero y registra un pit de dos
+bytes. `vreserve` solo reserva espacio virtual y no genera un pit PCP-I. Los
+`@insert`, `@before`, `padding` y alineamientos existentes de RIF siguen siendo
+válidos; `.sectionalign` también determina el padding del contenedor antes de
+la imagen.
+
+Si la fuente contiene varias Rules, puede seleccionarse una explícitamente:
+
+```powershell
+rif --comp-pcpi image.pci --pcpi-entry header
+```
 
 La API puede cargar una PCP-I compilada y rellenar un pit sin desplazar bytes:
 

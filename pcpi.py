@@ -13,6 +13,7 @@ MAX_PCPI_BYTES = 128 << 20
 PCPI_VERSION = 1
 _HEADER = struct.Struct("<BQIBBI")
 _PIT = struct.Struct("<HH")
+PCPI_HEADER_SIZE = _HEADER.size
 
 BITORDER_LSB = 0
 BITORDER_MSB = 1
@@ -30,6 +31,7 @@ class PCPIPit:
 
     address: int
     size: int
+    name: str | None = None
 
     @property
     def end(self) -> int:
@@ -124,8 +126,8 @@ def _validate_pits(pits: tuple[PCPIPit, ...], image_size: int) -> None:
         previous = pit
 
 
-def compile_pcpi(data: bytes | bytearray | memoryview) -> CompiledPCPI:
-    """Parse and strictly validate a PCP-I source or compiled container."""
+def parse_pcpi(data: bytes | bytearray | memoryview) -> CompiledPCPI:
+    """Parse and strictly validate a binary PCP-I container."""
 
     raw = bytes(data)
     maximum = _maximum_bytes()
@@ -180,31 +182,6 @@ def compile_pcpi(data: bytes | bytearray | memoryview) -> CompiledPCPI:
     )
 
 
-def compile_pcpi_file(
-    source: str | Path,
-    output: str | Path | None = None,
-) -> Path:
-    """Compile a ``.pci`` file into a canonical ``.pcic`` file."""
-
-    source_path = Path(source)
-    if not source_path.is_file():
-        raise FileNotFoundError(f"No se encontró la PCP-I: {source_path}")
-    maximum = _maximum_bytes()
-    if source_path.stat().st_size > maximum:
-        raise PCPIError("La PCP-I excede el límite de recursos configurado.")
-    compiled = compile_pcpi(source_path.read_bytes())
-    output_path = (
-        Path(output) if output is not None else source_path.with_suffix(".pcic")
-    )
-    if source_path.resolve() == output_path.resolve():
-        raise PCPIError("La salida PCP-I no puede sobrescribir la entrada.")
-    output_data = compiled.to_bytes()
-    if len(output_data) > maximum:
-        raise PCPIError("La PCP-I compilada excede el límite de recursos configurado.")
-    output_path.write_bytes(output_data)
-    return output_path
-
-
 def load_pcpi_file(source: str | Path) -> CompiledPCPI:
     """Load and validate either a source ``.pci`` or compiled ``.pcic`` file."""
 
@@ -214,7 +191,7 @@ def load_pcpi_file(source: str | Path) -> CompiledPCPI:
     maximum = _maximum_bytes()
     if source_path.stat().st_size > maximum:
         raise PCPIError("La PCP-I excede el límite de recursos configurado.")
-    return compile_pcpi(source_path.read_bytes())
+    return parse_pcpi(source_path.read_bytes())
 
 
 __all__ = [
@@ -224,10 +201,10 @@ __all__ = [
     "ENDIAN_BIG",
     "ENDIAN_LITTLE",
     "MAX_PCPI_BYTES",
+    "PCPI_HEADER_SIZE",
     "PCPIError",
     "PCPIPit",
     "PCPI_VERSION",
-    "compile_pcpi",
-    "compile_pcpi_file",
     "load_pcpi_file",
+    "parse_pcpi",
 ]

@@ -10,10 +10,10 @@ from pcpi import (
     ENDIAN_LITTLE,
     PCPIError,
     PCPIPit,
-    compile_pcpi,
-    compile_pcpi_file,
     load_pcpi_file,
+    parse_pcpi,
 )
+from pcpi_compiler import compile_pcpi_source, compile_pcpi_source_file
 from rif import main as rif_main
 
 
@@ -21,7 +21,37 @@ HEADER = struct.Struct("<BQIBBI")
 PIT = struct.Struct("<HH")
 
 
-def make_pcpi(
+SOURCE = '''\
+@config:
+.sectiondef ".section"
+.make section "text"
+.sectionend ":"
+.entrysection "text"
+.entrylabel "_start"
+.comment ";"
+.labelend ":"
+.datasection "text"
+.defaultsection "text"
+.wordsize 8
+.addresssize 64
+.endianess "little"
+.casesensitive true
+.symbolprefix "_"
+.localprefix "."
+.undefinedsymbols "error"
+.duplicateSymbols "error"
+.strict true
+.allowemptysections false
+@configend
+
+@rule pcpi:
+-> emitfr "01111111" "01000100"
+-> emitfrend
+-> reserve "entry" 16
+'''
+
+
+def make_binary_pcpi(
     image: bytes = b"\x00\x00\x00\x00\x00\x00",
     padding: bytes = b"\x00\x00",
     pits: tuple[tuple[int, int], ...] = ((0, 2), (4, 2)),
@@ -40,55 +70,54 @@ def make_pcpi(
 
 
 class PCPITests(unittest.TestCase):
-    def test_compiles_and_fills_fixed_size_pits(self) -> None:
-        compiled = compile_pcpi(make_pcpi())
-
-        self.assertEqual(compiled.image_size, 6)
-        self.assertEqual(compiled.pits, (PCPIPit(0, 2), PCPIPit(4, 2)))
-        self.assertEqual(compiled.fill(0, b"AB"), b"AB\x00\x00\x00\x00")
-        self.assertEqual(
-            compiled.render({0: b"AB", 1: b"CD"}), b"\x00\x00AB\x00\x00CD"
-        )
-
-    def test_compiles_to_pcic_and_loads_compiled_magic(self) -> None:
+    def test_rif_source_emits_image_and_reservation_pit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "header.pci"
-            output = Path(directory) / "header.pcic"
-            source.write_bytes(make_pcpi())
+            source.write_text(SOURCE, encoding="utf-8")
 
-            result = compile_pcpi_file(source, output)
+            result = compile_pcpi_source(source)
 
-            self.assertEqual(result, output)
-            self.assertEqual(output.read_bytes()[0], 1)
-            self.assertEqual(load_pcpi_file(output).image, b"\x00" * 6)
+            self.assertEqual(result.entry_rule, "pcpi")
+            self.assertEqual(result.image.image, b"\x7fD\x00\x00")
+            self.assertEqual(result.image.pits, (PCPIPit(2, 2, "entry"),))
 
-    def test_cli_compiles_to_derived_pcic_path(self) -> None:
+    def test_cli_compiles_text_source_to_derived_pcic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "header.pci"
-            source.write_bytes(make_pcpi())
+            source.write_text(SOURCE, encoding="utf-8")
 
             self.assertEqual(rif_main(["--comp-pcpi", str(source)]), 0)
-            self.assertTrue(source.with_suffix(".pcic").is_file())
+            output = source.with_suffix(".pcic")
+            self.assertTrue(output.is_file())
+            self.assertEqual(load_pcpi_file(output).image, b"\x7fD\x00\x00")
 
-    def test_rejects_invalid_layout_and_pits(self) -> None:
-        cases = (
-            (make_pcpi(version=2), "Versión PCP-I"),
-            (make_pcpi(pits=((5, 2),)), "termina fuera"),
-            (make_pcpi(pits=((0, 3), (2, 2))), "solaparse"),
-            (make_pcpi() + b"x", "tamaño"),
-        )
-        for data, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(PCPIError, message):
-                    compile_pcpi(data)
-
-    def test_does_not_overwrite_input(self) -> None:
+    def test_source_compiler_accepts_explicit_entry_and_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "header.pci"
-            source.write_bytes(make_pcpi())
+            output = Path(directory) / "build" / "header.pci"
+            source.write_text(SOURCE, encoding="utf-8")
 
-            with self.assertRaisesRegex(PCPIError, "sobrescribir"):
-                compile_pcpi_file(source, source)
+            result = compile_pcpi_source_file(source, output, entry_rule="pcpi")
+
+            self.assertEqual(result, output.resolve())
+            self.assertTrue(output.is_file())
+
+    def test_binary_validator_remains_strict_backend(self) -> None:
+        compiled = parse_pcpi(make_binary_pcpi())
+
+        self.assertEqual(compiled.pits, (PCPIPit(0, 2), PCPIPit(4, 2)))
+        self.assertEqual(compiled.fill(0, b"AB"), b"AB\x00\x00\x00\x00")
+        with self.assertRaisesRegex(PCPIError, "solaparse"):
+            parse_pcpi(make_binary_pcpi(pits=((0, 3), (2, 2))))
+
+    def test_rejects_non_byte_aligned_pit(self) -> None:
+        source = SOURCE.replace('reserve "entry" 16', 'reserve "entry" 12')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.pci"
+            path.write_text(source, encoding="utf-8")
+
+            with self.assertRaisesRegex(PCPIError, "alineado"):
+                compile_pcpi_source(path)
 
 
 if __name__ == "__main__":
