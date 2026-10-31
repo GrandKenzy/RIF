@@ -44,14 +44,19 @@ The physical layout of a PCP-I v1 is:
 [pit table]
 ```
 
-The header contains, in order, the format version, image size, padding needed
-to align regions, bit mode, endianness, and `pit_count`. In v1, the version
-occupies one byte and the image size occupies eight bytes. The size and
-encoding of the padding descriptor, together with the fixed width of
-`pit_count`, are part of the header and must be defined by the implementation
-before serializing the format. Numeric fields in the container must use a fixed
-endianness so the parser can read the header; the endianness field describes
-values in the binary image, not values in the container itself.
+The v1 fixed header is 19 bytes and uses little-endian for its numeric fields:
+
+| Field | Size | Values |
+| :--- | ---: | :--- |
+| Version | 1 byte | `1` |
+| Image size | 8 bytes | `uint64` |
+| Padding size | 4 bytes | `uint32` |
+| Bit mode | 1 byte | `0` LSB, `1` MSB |
+| Image endianness | 1 byte | `0` little, `1` big |
+| `pit_count` | 4 bytes | `uint32` |
+
+Image endianness describes values written into the ELF, PE, or GBA header; it
+does not change the PCP-I container encoding.
 
 Each pit-table entry is four bytes:
 
@@ -72,6 +77,29 @@ The file size is strict. A reader must reject an unknown version, a
 outside the image, or bytes after the table. Padding must also have an explicit
 size and deterministic fill value so the same PCP-I always produces the same
 layout.
+
+### Compilation
+
+A `.pci` source must be validated and compiled before use:
+
+```powershell
+rif --comp-pcpi image.pci
+rif --comp-pcpi image.pci -o build/image.pcic
+```
+
+Without `-o`, the output is derived as `image.pcic`. Compilation preserves the
+padding, image, and pit table; `.pcic` identifies the already compiled
+artifact. The compiler rejects inconsistent sizes, empty pits, overlaps, ranges
+outside the image, and trailing entries.
+
+The API can load a compiled PCP-I and fill a pit without shifting bytes:
+
+```python
+from pcpi import load_pcpi_file
+
+image = load_pcpi_file("image.pcic")
+payload = image.fill(0, b"\x01\x02\x03\x04")
+```
 
 ## `@before` and `.rplc`
 

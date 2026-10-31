@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from pack import create_pack
+from pcpi import PCPIError, compile_pcpi_file
 from rif_limits import ENV_KEY, parse_mib, write_mib
 
 
@@ -21,6 +22,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="empaqueta todos los archivos .rif del proyecto",
     )
     parser.add_argument(
+        "--comp-pcpi",
+        metavar="IMAGE.PCI",
+        help="compila una imagen PCP-I a un archivo .pcic",
+    )
+    parser.add_argument(
         "--plimit",
         metavar="MiB",
         type=parse_mib,
@@ -29,8 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         "--output",
-        metavar="ARCHIVO.PACK",
-        help="ruta de salida del paquete o binario; por defecto se deriva del input",
+        metavar="ARCHIVO",
+        help="ruta de salida del paquete, binario o PCP-I compilada",
     )
     parser.add_argument(
         "definition",
@@ -55,6 +61,16 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError) as exc:
             print(f"rif: error: {exc}", file=sys.stderr)
             return 1
+    if args.comp_pcpi:
+        if args.pack or args.definition or args.mir:
+            parser.error("--comp-pcpi no puede combinarse con --pack ni con una definición MIR")
+        try:
+            output = compile_pcpi_file(args.comp_pcpi, args.output)
+        except (FileNotFoundError, OSError, ValueError, PCPIError) as exc:
+            print(f"rif: error: {exc}", file=sys.stderr)
+            return 1
+        print(output)
+        return 0
     if not args.pack:
         if not args.definition or not args.mir:
             parser.error(

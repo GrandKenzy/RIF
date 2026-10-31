@@ -45,15 +45,20 @@ La disposición física de una PCP-I v1 es:
 [tabla de pits]
 ```
 
-El header contiene, en orden, la versión del formato, el tamaño de la imagen,
-el padding necesario para alinear regiones, el modo de bits, la endianidad y
-`pit_count`. En v1, la versión ocupa un byte y el tamaño de la imagen ocupa
-ocho bytes. El tamaño y la codificación del descriptor de padding, así como el
-ancho fijo de `pit_count`, forman parte del header y deben quedar definidos por
-la implementación antes de serializar el formato. Los campos numéricos del
-contenedor deben usar una endianidad fija para que el parser pueda leer el
-header; el campo de endianidad describe los valores de la imagen binaria, no
-los del propio contenedor.
+El header fijo de v1 ocupa 19 bytes y usa little-endian para sus campos
+numéricos:
+
+| Campo | Tamaño | Valores |
+| :--- | ---: | :--- |
+| Versión | 1 byte | `1` |
+| Tamaño de imagen | 8 bytes | `uint64` |
+| Tamaño de padding | 4 bytes | `uint32` |
+| Modo de bits | 1 byte | `0` LSB, `1` MSB |
+| Endianidad de la imagen | 1 byte | `0` little, `1` big |
+| `pit_count` | 4 bytes | `uint32` |
+
+La endianidad de la imagen describe los valores que se escribirán en el
+header ELF, PE o GBA; no cambia la codificación del contenedor PCP-I.
 
 Cada entrada de la tabla usa cuatro bytes:
 
@@ -74,6 +79,29 @@ desconocida, un `pit_count` cuyo número de entradas no coincida con los bytes
 restantes, un pit fuera de la imagen o bytes adicionales después de la tabla.
 El padding también debe tener un tamaño explícito y un valor de relleno
 determinista para que la misma PCP-I produzca siempre el mismo layout.
+
+### Compilación
+
+Una fuente `.pci` debe validarse y compilarse antes de usarse:
+
+```powershell
+rif --comp-pcpi image.pci
+rif --comp-pcpi image.pci -o build/image.pcic
+```
+
+Sin `-o`, la salida se deriva como `image.pcic`. La compilación conserva el
+padding, la imagen y la tabla de pits; `.pcic` identifica el artefacto ya
+compilado. El compilador rechaza tamaños inconsistentes, pits vacíos,
+solapamientos, rangos fuera de la imagen y entradas adicionales.
+
+La API puede cargar una PCP-I compilada y rellenar un pit sin desplazar bytes:
+
+```python
+from pcpi import load_pcpi_file
+
+image = load_pcpi_file("image.pcic")
+payload = image.fill(0, b"\x01\x02\x03\x04")
+```
 
 ## `@before` y `.rplc`
 
