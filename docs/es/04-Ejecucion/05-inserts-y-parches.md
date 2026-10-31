@@ -27,6 +27,54 @@ Los paquetes copian los archivos de `.file` dentro de entradas opacas en
 `assets/` y registran sus hashes. Empaquetar nunca ejecuta un insert ni un
 payload Python; el asset se resuelve al compilar usando el `.pack`.
 
+## Imágenes perforadas precompiladas (`.pci`)
+
+Una PCP-I es una imagen binaria pura precompilada con posiciones reservadas
+(*pits*) que otra fase puede completar sin cambiar el tamaño de la imagen. Es
+adecuada para headers de tamaño acotado, como ELF, PE o GBA; no sustituye a un
+`.pack`, porque el `.pack` contiene la definición de RIF y la información de
+compilación, mientras que una PCP-I contiene una imagen binaria lista para
+rellenarse.
+
+La disposición física de una PCP-I v1 es:
+
+```text
+[header fijo]
+[padding]
+[imagen binaria perforada]
+[tabla de pits]
+```
+
+El header contiene, en orden, la versión del formato, el tamaño de la imagen,
+el padding necesario para alinear regiones, el modo de bits, la endianidad y
+`pit_count`. En v1, la versión ocupa un byte y el tamaño de la imagen ocupa
+ocho bytes. El tamaño y la codificación del descriptor de padding, así como el
+ancho fijo de `pit_count`, forman parte del header y deben quedar definidos por
+la implementación antes de serializar el formato. Los campos numéricos del
+contenedor deben usar una endianidad fija para que el parser pueda leer el
+header; el campo de endianidad describe los valores de la imagen binaria, no
+los del propio contenedor.
+
+Cada entrada de la tabla usa cuatro bytes:
+
+```text
+uint16 address
+uint16 size
+```
+
+`address` es un desplazamiento relativo al inicio de la imagen binaria. Por
+tanto, un pit con `address = 0` comienza en `HEADER + 0`, donde `HEADER` es la
+base de esa imagen y no el inicio del archivo `.pci`. `size` indica cuántos
+bytes puede escribir la fase que completa la PCP-I. En v1 las entradas no
+desplazan bytes: el rango `[address, address + size)` debe caber dentro de la
+imagen, y los pits no deben solaparse.
+
+El tamaño del archivo es estricto. Un lector debe rechazar una versión
+desconocida, un `pit_count` cuyo número de entradas no coincida con los bytes
+restantes, un pit fuera de la imagen o bytes adicionales después de la tabla.
+El padding también debe tener un tamaño explícito y un valor de relleno
+determinista para que la misma PCP-I produzca siempre el mismo layout.
+
 ## `@before` y `.rplc`
 
 `@before` corre después de todas las líneas MIR y antes de devolver el binario
