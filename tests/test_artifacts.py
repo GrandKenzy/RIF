@@ -9,33 +9,33 @@ from MIR import compile_mir_source
 
 
 TARGET = '''\
-@config:
-.sectiondef ".section"
-.make section "text"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "text"
-.defaultsection "text"
-.wordsize 8
-.addresssize 64
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "text"
+defaultsection "text"
+wordsize 8
+addresssize 64
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+@end
 
-@linker:
-.ext ".asm"
-.name "main"
-.searching ""
-@linkerend
+@block linker:
+ext ".asm"
+name "main"
+searching ""
+@end
 
 @insert:
 .bytes "aa"
@@ -89,7 +89,7 @@ class ArtifactSyntaxTests(unittest.TestCase):
     def test_native_queries_cover_physical_and_virtual_layout(self) -> None:
         source = (
             TARGET.replace('.bytes "aa"', '.bytes "aabbccdd"')
-            .replace('.endianess "little"', '.endianess "little"\n.sectionvaddr "text" 4096')
+            .replace('endianness "little"', 'endianness "little"\nsectionvaddr "text" 4096')
             .replace(
                 '@before:\n.rplc 0, 1, 187\n@end',
                 '@before:\n'

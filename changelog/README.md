@@ -9,6 +9,13 @@
 
 ## Current release
 
+### Unreleased · Canonical generic blocks
+
+RIF now materializes `config` and `linker` through the generic `@block` form.
+The former dedicated block headers and dotted directive syntax are no longer
+accepted, and arbitrary blocks remain available through the compiled target
+context.
+
 ### [`1.0.1`](changelog_1.0.1.md) · Security hardening and resource controls
 
 RIF `1.0.1` strengthens path validation, resource controls, package safety,

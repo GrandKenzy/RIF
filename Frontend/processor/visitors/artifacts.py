@@ -42,7 +42,7 @@ def _single_string(tokens: tuple[Any, ...], directive: str) -> str:
 
 def _check_section(section: str) -> None:
     if globals.CONFIG is not None and section not in globals.CONFIG.sections:
-        raise RuntimeError(f"La sección '{section}' no existe en @config.")
+        raise RuntimeError(f"La sección '{section}' no existe en @block config.")
 
 
 def _insert_lines(node: Any) -> tuple[tuple[Any, ...], ...]:

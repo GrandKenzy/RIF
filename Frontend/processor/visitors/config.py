@@ -28,133 +28,98 @@ _FIELDS = (
 )
 
 
-def _children(node: Any) -> tuple[Any, ...]:
-    if isinstance(node, (list, tuple)):
-        return tuple(node)
-    return tuple(getattr(node, "nodes", ()) or ())
+def _string_value(entry: globals.BlockEntryData) -> str:
+    if len(entry.values) != 1:
+        raise RuntimeError(f"La entrada '{entry.name}' requiere un único string.")
+    value = entry.values[0]
+    if value.kind != "STRING" or not isinstance(value.value, str) or not value.value:
+        raise RuntimeError(f"La entrada '{entry.name}' requiere un string no vacío.")
+    return value.value
 
 
-def _token_kind(node: Any) -> str | None:
-    token = getattr(node, "token", None)
-    return getattr(getattr(token, "token", None), "name", None)
-
-
-def _token_value(node: Any) -> Any:
-    token = getattr(node, "token", None)
-    return getattr(token, "value", None)
-
-
-def _config_items(node: Any) -> tuple[Any, ...]:
-    children = _children(node)
-    if len(children) < 5 or not isinstance(children[4], list):
-        raise RuntimeError("@config debe contener directivas de configuración.")
-
-    items = tuple(children[4])
-    if not all(getattr(item, "name", None) for item in items):
-        raise RuntimeError("No se pudo identificar una directiva dentro de @config.")
-    return items
-
-
-def _string_value(node: Any) -> str:
-    strings = tuple(
-        _token_value(child)
-        for child in _walk(node)
-        if _token_kind(child) == "STRING"
-    )
-    if len(strings) != 1 or not isinstance(strings[0], str) or not strings[0]:
-        raise RuntimeError("Las directivas de @config requieren un string no vacío.")
-    return strings[0]
-
-
-def _literal_values(node: Any, kind: str) -> tuple[Any, ...]:
-    kinds = {kind}
+def _literal_value(entry: globals.BlockEntryData, kind: str) -> Any:
+    if len(entry.values) != 1:
+        raise RuntimeError(f"La entrada '{entry.name}' requiere un valor {kind}.")
+    value = entry.values[0]
+    allowed = {kind}
     if kind == "NUMBER":
-        kinds.add("DECIMAL")
-    return tuple(
-        _token_value(child)
-        for child in _walk(node)
-        if _token_kind(child) in kinds
-    )
+        allowed.add("DECIMAL")
+    if value.kind not in allowed:
+        raise RuntimeError(f"La entrada '{entry.name}' requiere un valor {kind}.")
+    return value.value
 
 
-def _one_literal(node: Any, kind: str, field: str) -> Any:
-    values = _literal_values(node, kind)
-    if len(values) != 1:
-        raise RuntimeError(f"La directiva '{field}' requiere un valor {kind}.")
-    return values[0]
+def _section_name(entry: globals.BlockEntryData) -> str:
+    if len(entry.values) != 2:
+        raise RuntimeError("La entrada 'make' requiere 'section' y un nombre.")
+    kind, value = entry.values[0].kind, entry.values[0].value
+    if kind not in {"IDENT", "KEYWORD"} or value != "section":
+        raise RuntimeError("La entrada 'make' solo admite la forma 'make section <nombre>'.")
+    section = entry.values[1]
+    if section.kind != "STRING" or not isinstance(section.value, str) or not section.value:
+        raise RuntimeError("La entrada 'make' requiere un nombre de sección no vacío.")
+    return section.value
 
 
-def _walk(node: Any):
-    yield node
-    for child in _children(node):
-        yield from _walk(child)
+def _section_string_and_number(
+    entry: globals.BlockEntryData,
+    field: str,
+) -> tuple[str, Any]:
+    if len(entry.values) != 2:
+        raise RuntimeError(f"La entrada '{field}' requiere una sección y un número.")
+    section, number = entry.values
+    if section.kind != "STRING" or not isinstance(section.value, str) or not section.value:
+        raise RuntimeError(f"{field} requiere una sección no vacía.")
+    if number.kind not in {"NUMBER", "DECIMAL"}:
+        raise RuntimeError(f"{field} requiere un número.")
+    return section.value, number.value
 
 
-def visit(node: Any) -> None:
-    """Valida y materializa el bloque único @config."""
+def visit(block: globals.BlockData) -> None:
+    """Validate and materialize the canonical generic ``config`` block."""
+
     if globals.CONFIG is not None:
-        raise RuntimeError("Solo puede declararse un bloque @config por programa.")
+        raise RuntimeError("Solo puede declararse un bloque @block config por programa.")
 
-    values: dict[str, str] = {}
+    values: dict[str, Any] = {}
     sections: list[str] = []
 
-    for item in _config_items(node):
-        item_name = getattr(item, "name", None)
-        if item_name == "MAKE_SECTION":
-            section = _string_value(item)
+    for entry in block.entries:
+        name = entry.name
+        if name == "make":
+            section = _section_name(entry)
             if section in sections:
                 raise RuntimeError(f"La sección '{section}' ya fue declarada.")
             sections.append(section)
             continue
-        if item_name in {"SECTIONFLAGS", "SECTIONALIGN", "SECTIONVADDR"}:
+        if name in {"sectionflags", "sectionalign", "sectionvaddr", "bitorder"}:
             continue
 
-        field = {
-            "SECTIONDEF": "sectiondef",
-            "SECTIONEND": "sectionend",
-            "ENTRYSECTION": "entrysection",
-            "ENTRYLABEL": "entrylabel",
-            "COMMENT": "comment",
-            "LABELEND": "labelend",
-            "DATASECTION": "datasection",
-            "DEFAULTSECTION": "defaultsection",
-            "WORDSIZE": "wordsize",
-            "ADDRESSSIZE": "addresssize",
-            "ENDIANESS": "endianness",
-            "CASESENSITIVE": "casesensitive",
-            "SYMBOLPREFIX": "symbolprefix",
-            "LOCALPREFIX": "localprefix",
-            "UNDEFINEDSYMBOLS": "undefinedsymbols",
-            "DUPLICATESYMBOLS": "duplicatesymbols",
-            "STRICT": "strict",
-            "ALLOWEMPTYSECTIONS": "allowemptysections",
-            "BITORDER": "bitorder",
-        }.get(item_name)
-        if field is None:
-            raise RuntimeError(f"Directiva de @config desconocida: {item_name}.")
-        if field in values:
-            raise RuntimeError(f"La directiva '{field}' solo puede aparecer una vez.")
-        if field in {"wordsize", "addresssize"}:
-            value = _one_literal(item, "NUMBER", field)
+        if name not in _FIELDS:
+            raise RuntimeError(f"Entrada de @block config desconocida: {name}.")
+        if name in values:
+            raise RuntimeError(f"La entrada '{name}' solo puede aparecer una vez.")
+        if name in {"wordsize", "addresssize"}:
+            value = _literal_value(entry, "NUMBER")
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise RuntimeError(f"'{field}' debe ser un entero mayor que cero.")
+                raise RuntimeError(f"'{name}' debe ser un entero mayor que cero.")
             if value > resolve_limits().cap(256 << 20) * 8:
-                raise RuntimeError(f"'{field}' excede el límite de recursos configurado.")
-            values[field] = value  # type: ignore[assignment]
-        elif field in {"casesensitive", "strict", "allowemptysections"}:
-            value = _one_literal(item, "BOOL", field)
+                raise RuntimeError(f"'{name}' excede el límite de recursos configurado.")
+            values[name] = value
+        elif name in {"casesensitive", "strict", "allowemptysections"}:
+            value = _literal_value(entry, "BOOL")
             if not isinstance(value, bool):
-                raise RuntimeError(f"'{field}' debe ser booleano.")
-            values[field] = value  # type: ignore[assignment]
+                raise RuntimeError(f"'{name}' debe ser booleano.")
+            values[name] = value
         else:
-            values[field] = _string_value(item)
+            values[name] = _string_value(entry)
 
     missing = [field for field in _FIELDS if field not in values]
     if not sections:
-        raise RuntimeError("@config debe declarar al menos una sección.")
+        raise RuntimeError("@block config debe declarar al menos una sección.")
     if missing:
         raise RuntimeError(
-            "Faltan directivas obligatorias en @config: " + ", ".join(missing)
+            "Faltan entradas obligatorias en @block config: " + ", ".join(missing)
         )
 
     entrysection = values["entrysection"]
@@ -177,44 +142,37 @@ def visit(node: Any) -> None:
     sectionflags: dict[str, str] = {}
     sectionalign: dict[str, int] = {}
     sectionvaddr: dict[str, int] = {}
-    for item in _config_items(node):
-        item_name = getattr(item, "name", None)
-        if item_name == "SECTIONFLAGS":
-            strings = _literal_values(item, "STRING")
-            if len(strings) != 2 or any(not isinstance(value, str) or not value for value in strings):
+    for entry in block.entries:
+        if entry.name == "sectionflags":
+            if len(entry.values) != 2 or any(
+                value.kind != "STRING" or not isinstance(value.value, str) or not value.value
+                for value in entry.values
+            ):
                 raise RuntimeError("sectionflags requiere sección y permisos no vacíos.")
-            section, flags = strings
+            section, flags = (value.value for value in entry.values)
             if section not in sections:
                 raise RuntimeError(f"sectionflags referencia sección desconocida '{section}'.")
             if section in sectionflags:
                 raise RuntimeError(f"sectionflags ya fue declarada para '{section}'.")
             sectionflags[section] = flags
-        elif item_name == "SECTIONALIGN":
-            strings = _literal_values(item, "STRING")
-            alignment = _one_literal(item, "NUMBER", "sectionalign")
-            if len(strings) != 1 or not strings[0]:
-                raise RuntimeError("sectionalign requiere una sección no vacía.")
-            if isinstance(alignment, bool) or not isinstance(alignment, int) or alignment <= 0:
-                raise RuntimeError("sectionalign debe ser un entero mayor que cero.")
-            section = strings[0]
+        elif entry.name in {"sectionalign", "sectionvaddr"}:
+            section, number = _section_string_and_number(entry, entry.name)
             if section not in sections:
-                raise RuntimeError(f"sectionalign referencia sección desconocida '{section}'.")
-            if section in sectionalign:
-                raise RuntimeError(f"sectionalign ya fue declarada para '{section}'.")
-            sectionalign[section] = alignment
-        elif item_name == "SECTIONVADDR":
-            strings = _literal_values(item, "STRING")
-            address = _one_literal(item, "NUMBER", "sectionvaddr")
-            if len(strings) != 1 or not strings[0]:
-                raise RuntimeError("sectionvaddr requiere una sección no vacía.")
-            if isinstance(address, bool) or not isinstance(address, int) or address < 0:
-                raise RuntimeError("sectionvaddr debe ser un entero no negativo.")
-            section = strings[0]
-            if section not in sections:
-                raise RuntimeError(f"sectionvaddr referencia sección desconocida '{section}'.")
-            if section in sectionvaddr:
-                raise RuntimeError(f"sectionvaddr ya fue declarada para '{section}'.")
-            sectionvaddr[section] = address
+                raise RuntimeError(f"{entry.name} referencia sección desconocida '{section}'.")
+            if isinstance(number, bool) or not isinstance(number, int):
+                raise RuntimeError(f"{entry.name} debe ser un entero.")
+            if entry.name == "sectionalign":
+                if number <= 0:
+                    raise RuntimeError("sectionalign debe ser un entero mayor que cero.")
+                if section in sectionalign:
+                    raise RuntimeError(f"sectionalign ya fue declarada para '{section}'.")
+                sectionalign[section] = number
+            else:
+                if number < 0:
+                    raise RuntimeError("sectionvaddr debe ser un entero no negativo.")
+                if section in sectionvaddr:
+                    raise RuntimeError(f"sectionvaddr ya fue declarada para '{section}'.")
+                sectionvaddr[section] = number
 
     endianness = values["endianness"].lower()
     if endianness not in {"little", "big"}:
@@ -223,7 +181,15 @@ def visit(node: Any) -> None:
         raise RuntimeError("undefinedsymbols debe ser 'error', 'warn' o 'ignore'.")
     if values["duplicatesymbols"] not in {"error", "warn", "ignore"}:
         raise RuntimeError("duplicatesymbols debe ser 'error', 'warn' o 'ignore'.")
-    bitorder = values.get("bitorder", "msb").lower()
+
+    bitorder = "msb"
+    bitorder_seen = False
+    for entry in block.entries:
+        if entry.name == "bitorder":
+            if bitorder_seen:
+                raise RuntimeError("La entrada 'bitorder' solo puede aparecer una vez.")
+            bitorder_seen = True
+            bitorder = _string_value(entry).lower()
     if bitorder not in {"msb", "lsb"}:
         raise RuntimeError("bitorder debe ser 'msb' o 'lsb'.")
 

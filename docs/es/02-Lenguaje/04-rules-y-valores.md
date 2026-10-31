@@ -51,7 +51,7 @@ coincida con el guardado y después lo consume.
 ```
 
 `put` emite dos campos de cuatro bits; `ebit`, ocho campos de un bit; `emmit`,
-una palabra de `.wordsize`; y `emitfr`, un frame multilinea con cualquier
+una palabra de `wordsize`; y `emitfr`, un frame multilinea con cualquier
 `VALUE`.
 
 ## Tablas, reservas y posiciones

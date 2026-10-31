@@ -34,12 +34,12 @@ datasection "text"
 defaultsection "text"
 wordsize 8
 addresssize 64
-endianess "little"
+endianness "little"
 casesensitive true
 symbolprefix "_"
 localprefix "."
 undefinedsymbols "error"
-duplicateSymbols "error"
+duplicatesymbols "error"
 strict true
 allowemptysections false
 @end

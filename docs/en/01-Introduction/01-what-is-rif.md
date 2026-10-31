@@ -15,9 +15,9 @@ RIF is designed around three separations:
 
 The root `main.rif` may contain:
 
-- `@config` for target sections, word size, byte order, labels, and symbol
+- `@block config` for target sections, word size, byte order, labels, and symbol
   policy.
-- `@linker` for MIR file discovery.
+- `@block linker` for MIR file discovery.
 - `@table` declarations for instruction metadata and other target data.
 - `@define` declarations for named words.
 - `@rule` declarations that describe how MIR lines are processed.

@@ -21,7 +21,7 @@ rif main.pack program.asm
 rif main.rif program.asm -o build/program.bin
 ```
 
-The MIR extension must match `.ext` in the target's linker block. When `-o` is
+The MIR extension must match `ext` in the target's linker block. When `-o` is
 omitted, the output path is the MIR path with a `.bin` suffix.
 
 ## Direct Python API
@@ -61,7 +61,7 @@ preferred entry when a host compiler already owns tokenization.
 
 ## Sections
 
-The default output section is `.entrysection` from `@config`. A direct caller
+The default output section is `entrysection` from `@block config`. A direct caller
 can select another configured section:
 
 ```python

@@ -53,7 +53,7 @@ token to match that saved token and then consumes it.
 ```
 
 `put` emits two four-bit fields. `ebit` emits eight one-bit fields. `emmit`
-uses `.wordsize`. `emitfr` emits a multiline frame and accepts any `VALUE` in
+uses `wordsize`. `emitfr` emits a multiline frame and accepts any `VALUE` in
 its rows.
 
 ## Tables, Reservations, and Positions

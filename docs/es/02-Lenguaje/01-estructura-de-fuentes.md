@@ -23,7 +23,7 @@ No existe una gramática de indentación para Rules.
 
 ## Declaraciones por alcance
 
-La raíz puede contener `@config`, `@linker`, `@table`, `@stack`, `@SUPPORTS`,
+La raíz puede contener `@block config`, `@block linker`, `@table`, `@stack`, `@SUPPORTS`,
 `@ASMVARIANT`, `@define`, `@rule` y `@LOAD`.
 
 Un archivo cargado con `@LOAD` solo puede contener `@define`, `@table`, `@rule`
@@ -45,11 +45,10 @@ wordsize 8
 ```
 
 Cada línea contiene un nombre y cero, uno o dos valores antes del salto de
-línea. También se acepta un punto delante del nombre (`.wordsize 8`) para
-facilitar la migración desde las directivas antiguas. Una línea con más de dos
-valores es inválida.
+línea. No se aceptan prefijos de punto ni las antiguas cabeceras
+`@config`/`@linker`; una línea con más de dos valores es inválida.
 
-Los bloques `config` y `linker` se traducen a la semántica existente de RIF.
+Los bloques `config` y `linker` alimentan directamente la semántica existente de RIF.
 Los bloques con otros nombres se conservan como datos estructurados en
 `program.context.blocks`, para que los consumidores especializados puedan
 interpretarlos sin añadir una nueva regla al parser.

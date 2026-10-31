@@ -133,7 +133,7 @@ def compile_definition(path: str | Path) -> CompiledRuleSet:
 def compile_project(path: str | Path) -> Compilation:
     program = compile_source(path)
     if program.context.config is None:
-        raise RuntimeError("El proyecto requiere @config para crear una salida por secciones.")
+        raise RuntimeError("El proyecto requiere @block config para crear una salida por secciones.")
     source_path = Path(path).expanduser().resolve()
     return Compilation(source_path, program, AssemblyImage(program.context.config))
 

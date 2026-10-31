@@ -133,36 +133,36 @@ class StackProcessorTests(unittest.TestCase):
     def test_config_is_materialized_and_validated(self) -> None:
         process(
             self.parse(
-                "@config:\n"
-                '.sectiondef ".section"\n'
-                '.make section "data"\n'
-                '.make section "text"\n'
-                '.make section "bss"\n'
-                '.sectionend ":"\n'
-                '.entrysection "text"\n'
-                '.entrylabel "_start"\n'
-                '.comment ";"\n'
-                '.labelend ":"\n'
-                '.datasection "data"\n'
-                '.defaultsection "text"\n'
-                '.sectionflags "text" "rx"\n'
-                '.sectionflags "data" "rw"\n'
-                '.sectionflags "bss" "rw"\n'
-                '.sectionalign "text" 4\n'
-                '.sectionalign "data" 4\n'
-                '.sectionalign "bss" 4\n'
-                '.wordsize 32\n'
-                '.addresssize 32\n'
-                '.endianess "little"\n'
-                '.bitorder "lsb"\n'
-                '.casesensitive true\n'
-                '.symbolprefix "_"\n'
-                '.localprefix "."\n'
-                '.undefinedsymbols "error"\n'
-                '.duplicateSymbols "error"\n'
-                '.strict true\n'
-                '.allowemptysections false\n'
-                "@configend\n"
+                "@block config:\n"
+                'sectiondef ".section"\n'
+                'make section "data"\n'
+                'make section "text"\n'
+                'make section "bss"\n'
+                'sectionend ":"\n'
+                'entrysection "text"\n'
+                'entrylabel "_start"\n'
+                'comment ";"\n'
+                'labelend ":"\n'
+                'datasection "data"\n'
+                'defaultsection "text"\n'
+                'sectionflags "text" "rx"\n'
+                'sectionflags "data" "rw"\n'
+                'sectionflags "bss" "rw"\n'
+                'sectionalign "text" 4\n'
+                'sectionalign "data" 4\n'
+                'sectionalign "bss" 4\n'
+                'wordsize 32\n'
+                'addresssize 32\n'
+                'endianness "little"\n'
+                'bitorder "lsb"\n'
+                'casesensitive true\n'
+                'symbolprefix "_"\n'
+                'localprefix "."\n'
+                'undefinedsymbols "error"\n'
+                'duplicatesymbols "error"\n'
+                'strict true\n'
+                'allowemptysections false\n'
+                "@end\n"
             )
         )
 
@@ -177,27 +177,27 @@ class StackProcessorTests(unittest.TestCase):
 
     def test_config_requires_declared_entry_and_data_sections(self) -> None:
         source = (
-            "@config:\n"
-            '.sectiondef ".section"\n'
-            '.make section "text"\n'
-            '.sectionend ":"\n'
-            '.entrysection "missing"\n'
-            '.entrylabel "_start"\n'
-            '.comment ";"\n'
-            '.labelend ":"\n'
-            '.datasection "text"\n'
-            '.defaultsection "text"\n'
-            '.wordsize 32\n'
-            '.addresssize 32\n'
-            '.endianess "little"\n'
-            '.casesensitive true\n'
-            '.symbolprefix "_"\n'
-            '.localprefix "."\n'
-            '.undefinedsymbols "error"\n'
-            '.duplicateSymbols "error"\n'
-            '.strict true\n'
-            '.allowemptysections false\n'
-            "@configend\n"
+            "@block config:\n"
+            'sectiondef ".section"\n'
+            'make section "text"\n'
+            'sectionend ":"\n'
+            'entrysection "missing"\n'
+            'entrylabel "_start"\n'
+            'comment ";"\n'
+            'labelend ":"\n'
+            'datasection "text"\n'
+            'defaultsection "text"\n'
+            'wordsize 32\n'
+            'addresssize 32\n'
+            'endianness "little"\n'
+            'casesensitive true\n'
+            'symbolprefix "_"\n'
+            'localprefix "."\n'
+            'undefinedsymbols "error"\n'
+            'duplicatesymbols "error"\n'
+            'strict true\n'
+            'allowemptysections false\n'
+            "@end\n"
         )
 
         with self.assertRaises(RuntimeError):
@@ -205,29 +205,29 @@ class StackProcessorTests(unittest.TestCase):
 
     def test_config_rejects_duplicate_directives_and_sections(self) -> None:
         source = (
-            "@config:\n"
-            '.sectiondef ".section"\n'
-            '.sectiondef ".segment"\n'
-            '.make section "text"\n'
-            '.make section "text"\n'
-            '.sectionend ":"\n'
-            '.entrysection "text"\n'
-            '.entrylabel "_start"\n'
-            '.comment ";"\n'
-            '.labelend ":"\n'
-            '.datasection "text"\n'
-            '.defaultsection "text"\n'
-            '.wordsize 32\n'
-            '.addresssize 32\n'
-            '.endianess "little"\n'
-            '.casesensitive true\n'
-            '.symbolprefix "_"\n'
-            '.localprefix "."\n'
-            '.undefinedsymbols "error"\n'
-            '.duplicateSymbols "error"\n'
-            '.strict true\n'
-            '.allowemptysections false\n'
-            "@configend\n"
+            "@block config:\n"
+            'sectiondef ".section"\n'
+            'sectiondef ".segment"\n'
+            'make section "text"\n'
+            'make section "text"\n'
+            'sectionend ":"\n'
+            'entrysection "text"\n'
+            'entrylabel "_start"\n'
+            'comment ";"\n'
+            'labelend ":"\n'
+            'datasection "text"\n'
+            'defaultsection "text"\n'
+            'wordsize 32\n'
+            'addresssize 32\n'
+            'endianness "little"\n'
+            'casesensitive true\n'
+            'symbolprefix "_"\n'
+            'localprefix "."\n'
+            'undefinedsymbols "error"\n'
+            'duplicatesymbols "error"\n'
+            'strict true\n'
+            'allowemptysections false\n'
+            "@end\n"
         )
 
         with self.assertRaises(RuntimeError):
@@ -236,11 +236,11 @@ class StackProcessorTests(unittest.TestCase):
     def test_linker_is_materialized_without_dag(self) -> None:
         process(
             self.parse(
-                "@linker:\n"
-                '.ext ".asm"\n'
-                '.name "main"\n'
-                '.searching ""\n'
-                "@linkerend\n"
+                "@block linker:\n"
+                'ext ".asm"\n'
+                'name "main"\n'
+                'searching ""\n'
+                "@end\n"
             )
         )
 
@@ -251,11 +251,11 @@ class StackProcessorTests(unittest.TestCase):
     def test_linker_false_disables_searching(self) -> None:
         process(
             self.parse(
-                "@linker:\n"
-                '.ext ".asm"\n'
-                '.name "main"\n'
-                ".searching false\n"
-                "@linkerend\n"
+                "@block linker:\n"
+                'ext ".asm"\n'
+                'name "main"\n'
+                "searching false\n"
+                "@end\n"
             )
         )
 

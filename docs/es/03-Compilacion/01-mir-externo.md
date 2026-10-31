@@ -18,7 +18,7 @@ rif main.pack program.asm
 rif main.rif program.asm -o build/program.bin
 ```
 
-La extensión debe coincidir con `.ext` en `@linker`. Sin `-o`, la salida usa la
+La extensión debe coincidir con `ext` en `@block linker`. Sin `-o`, la salida usa la
 misma ruta del MIR con extensión `.bin`.
 
 ## API directa
@@ -54,7 +54,7 @@ result = compile_mir_tokens("main.pack", tokens)
 
 ## Secciones
 
-La sección predeterminada es `.entrysection`. Una API directa puede elegir otra
+La sección predeterminada es `entrysection`. Una API directa puede elegir otra
 sección configurada:
 
 ```python

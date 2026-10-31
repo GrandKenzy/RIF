@@ -5,9 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from Frontend import globals
-from .visitors.config import visit as visit_config
 from .visitors.define import visit as visit_define
-from .visitors.linker import visit as visit_linker
 from .visitors.rule import visit as visit_rule
 from .visitors.stack import visit as visit_stack
 from .visitors.table import visit as visit_table
@@ -62,7 +60,7 @@ def process(
     try:
         allowed = {
             "root": {
-                "CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT",
+                "DEFINE", "SUPPORTS", "ASMVARIANT",
                 "TABLE", "STACK", "RULE", "LOAD_FILE",
                 "INSERT", "BEFORE",
                 "BLOCK",
@@ -85,15 +83,11 @@ def process(
                 f"El alcance '{scope}' no permite estas declaraciones: {names}."
             )
 
-        # La configuración, el linker, los labels y los soportes se registran
-        # antes de resolver tablas u otras referencias, sin depender del orden.
+        # Los bloques genéricos, los labels y los soportes se registran antes
+        # de resolver tablas u otras referencias, sin depender del orden.
         for node in nodes:
             name = getattr(node, "name", type(node).__name__)
-            if name == "CONFIG":
-                visit_config(node)
-            elif name == "LINKER":
-                visit_linker(node)
-            elif name == "DEFINE":
+            if name == "DEFINE":
                 visit_define(node)
             elif name == "SUPPORTS":
                 visit_support(node)
@@ -106,7 +100,7 @@ def process(
 
         for node in nodes:
             name = getattr(node, "name", type(node).__name__)
-            if name in {"CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT", "BLOCK"}:
+            if name in {"DEFINE", "SUPPORTS", "ASMVARIANT", "BLOCK"}:
                 continue
             if name == "TABLE":
                 visit_table(node)

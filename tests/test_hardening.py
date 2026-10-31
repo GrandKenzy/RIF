@@ -20,33 +20,33 @@ from rif_limits import resolve_limits, write_mib
 
 
 CONFIG = '''\
-@config:
-.sectiondef ".section"
-.make section "text"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "text"
-.defaultsection "text"
-.wordsize {wordsize}
-.addresssize 64
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "text"
+defaultsection "text"
+wordsize {wordsize}
+addresssize 64
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+@end
 
-@linker:
-.ext ".asm"
-.name "main"
-.searching ""
-@linkerend
+@block linker:
+ext ".asm"
+name "main"
+searching ""
+@end
 '''
 
 

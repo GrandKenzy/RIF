@@ -11,28 +11,28 @@ from MIR import BitEmitter, MIRSemanticError, RIFMachine, RIFRuntimeError, compi
 
 
 CONFIG_SOURCE = """\
-@config:
-.sectiondef ".section"
-.make section "text"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "text"
-.defaultsection "text"
-.sectionalign "text" 8
-.wordsize 8
-.addresssize 8
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "text"
+defaultsection "text"
+sectionalign "text" 8
+wordsize 8
+addresssize 8
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+@end
 """
 
 

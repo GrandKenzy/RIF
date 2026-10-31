@@ -967,7 +967,7 @@ class PackReader:
         if searching:
             searching_path = PurePosixPath(searching.replace("\\", "/"))
             if Path(searching).is_absolute() or searching_path.is_absolute() or ".." in searching_path.parts:
-                raise ValueError(".searching solo acepta una carpeta relativa dentro del paquete.")
+                raise ValueError("searching solo acepta una carpeta relativa dentro del paquete.")
             directory /= PurePosixPath(searching.replace("\\", "/"))
         key = (directory / f"{name}.rif").as_posix()
         if key not in self._known_sources:

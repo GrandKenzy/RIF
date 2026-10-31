@@ -282,8 +282,8 @@ SOURCE_PROVIDER: Any | None = None
 INSERTS: list[InsertData] = []
 BEFORE: list[BeforePatchData] = []
 
-# Generic @block data. Known blocks may be desugared into legacy semantic
-# visitors; unknown blocks remain available to higher-level consumers.
+# Generic @block data. Known blocks are materialized by their direct visitors;
+# unknown blocks remain available to higher-level consumers.
 BLOCKS: dict[str, list[BlockData]] = {}
 
 __all__ = [

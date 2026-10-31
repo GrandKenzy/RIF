@@ -35,7 +35,7 @@ def resolve_variant(
     root_path: str | Path,
     project_root: str | Path | None = None,
 ) -> Path:
-    """Resuelve ``<name>.rif`` respetando ``.searching`` del linker."""
+    """Resuelve ``<name>.rif`` respetando ``searching`` del linker."""
 
     root = Path(root_path).expanduser()
     linker = globals.LINKER
@@ -51,7 +51,7 @@ def resolve_variant(
     directory = _root_directory(root)
     if isinstance(searching, str) and searching:
         if Path(searching).is_absolute() or ".." in Path(searching).parts:
-            raise RuntimeError(".searching solo acepta una carpeta relativa dentro del proyecto.")
+            raise RuntimeError("searching solo acepta una carpeta relativa dentro del proyecto.")
         directory = directory / searching
     candidate = Path(canonical_path(directory / f"{name}.rif"))
     boundary = Path(project_root).expanduser().resolve(strict=False) if project_root else _root_directory(root).resolve(strict=False)

@@ -13,7 +13,7 @@ cualquier bit, sin limitarse a bytes completos.
 ```
 
 La emisión normal avanza el cursor físico, consultable con `::SIZE`. `emmit`
-usa `.wordsize`; `put` y `ebit` tienen anchos fijos; `emitbits` recibe valor y
+usa `wordsize`; `put` y `ebit` tienen anchos fijos; `emitbits` recibe valor y
 ancho explícitos.
 
 ## Reescribir bits
@@ -27,8 +27,8 @@ ancho explícitos.
 `patchbits OFFSET WIDTH VALUE` reescribe el rango sin avanzar los cursores.
 Fuera de rango falla antes de modificar el buffer.
 
-Los anchos múltiplos de ocho respetan `.endianess`; los demás respetan
-`.bitorder`.
+Los anchos múltiplos de ocho respetan `endianness`; los demás respetan
+`bitorder`.
 
 ## Padding y alineamiento
 
@@ -93,4 +93,4 @@ devuelve una copia serializada y `view()` una vista viva. `BitQuery` expone el
 valor entero, bits, rango y bytes cuando el rango está alineado.
 
 `AssemblyImage.render()` genera una representación de las secciones usando la
-configuración de `.sectiondef`, `.sectionend`, labels, comentarios y alineación.
+configuración de `sectiondef`, `sectionend`, labels, comentarios y alineación.

@@ -19,7 +19,7 @@ starts, in declaration order:
 ```
 
 `.section` selects the following payload section. If omitted, the configured
-`.defaultsection` is used. `.bytes` consumes hexadecimal bytes, `.binary`
+`defaultsection` is used. `.bytes` consumes hexadecimal bytes, `.binary`
 consumes a bit string, `.file` reads a project-relative binary file, and
 `.call` asks `funcs.py` for a binary payload.
 
@@ -96,7 +96,7 @@ pits, overlaps, ranges outside the image, and trailing entries.
 
 ### RIF syntax
 
-The source must contain a normal `@config` and a Rule named `pcpi` or `image`.
+The source must contain a normal `@block config` and a Rule named `pcpi` or `image`.
 If there is only one Rule, it is selected automatically. RIF instructions build
 the image; each byte-aligned physical `reserve` becomes a pit:
 
@@ -110,7 +110,7 @@ the image; each byte-aligned physical `reserve` becomes a pit:
 `reserve "entry_point" 16` emits two zero bytes and records a two-byte pit.
 `vreserve` only reserves virtual space and does not create a PCP-I pit. Existing
 RIF `@insert`, `@before`, `padding`, and alignment features remain valid;
-`.sectionalign` also determines the container padding before the image.
+`sectionalign` also determines the container padding before the image.
 
 When a source contains multiple Rules, select one explicitly:
 
@@ -155,8 +155,8 @@ Native expressions are:
 | `#:qvssize(base, "section")` | Virtual end of a section relative to `base`. |
 | `#:calc(a + b)` / `#:calc(a - b)` | Integer addition or subtraction. |
 
-Physical layout is built from sections in `.make section` order. Use
-`.sectionalign` for byte alignment and `.sectionvaddr` when the target needs a
+Physical layout is built from sections in `make section` order. Use
+`sectionalign` for byte alignment and `sectionvaddr` when the target needs a
 specific virtual base. `::SIZE` and `::VSIZE` remain Rule-local cursors; the
 native queries inspect the complete sectioned image.
 

@@ -1,39 +1,39 @@
 ; AMD64 Linux raw-binary target.
 ; This target encodes a minimal _exit(42) program.
 
-@config:
-.sectiondef ".section"
-.make section "text"
-.make section "data"
-.make section "bss"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "data"
-.defaultsection "text"
-.sectionflags "text" "rx"
-.sectionflags "data" "rw"
-.sectionflags "bss" "rw"
-.wordsize 64
-.addresssize 64
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-.bitorder "msb"
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+make section "data"
+make section "bss"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "data"
+defaultsection "text"
+sectionflags "text" "rx"
+sectionflags "data" "rw"
+sectionflags "bss" "rw"
+wordsize 64
+addresssize 64
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+bitorder "msb"
+@end
 
-@linker:
-.ext ".asm"
-.name "main"
-.searching ""
-@linkerend
+@block linker:
+ext ".asm"
+name "main"
+searching ""
+@end
 
 ; ModRM byte for: 48 C7 /0 r/m64, where the register is the destination.
 @table registers

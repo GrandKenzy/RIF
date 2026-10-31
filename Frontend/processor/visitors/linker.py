@@ -1,93 +1,50 @@
 from __future__ import annotations
 
-from typing import Any
-
 from Frontend import globals
 
 
-def _children(node: Any) -> tuple[Any, ...]:
-    if isinstance(node, (list, tuple)):
-        return tuple(node)
-    return tuple(getattr(node, "nodes", ()) or ())
+def _value(entry: globals.BlockEntryData) -> str | bool:
+    if len(entry.values) != 1:
+        raise RuntimeError(f"La entrada '{entry.name}' requiere un único valor.")
+    value = entry.values[0]
+    if value.kind == "STRING" and isinstance(value.value, str):
+        return value.value
+    if value.kind == "BOOL" and isinstance(value.value, bool):
+        return value.value
+    raise RuntimeError(f"La entrada '{entry.name}' requiere un string o booleano.")
 
 
-def _walk(node: Any):
-    yield node
-    for child in _children(node):
-        yield from _walk(child)
+def visit(block: globals.BlockData) -> None:
+    """Validate and materialize the canonical generic ``linker`` block."""
 
-
-def _token_kind(node: Any) -> str | None:
-    token = getattr(node, "token", None)
-    return getattr(getattr(token, "token", None), "name", None)
-
-
-def _token_value(node: Any) -> Any:
-    token = getattr(node, "token", None)
-    return getattr(token, "value", None)
-
-
-def _items(node: Any) -> tuple[Any, ...]:
-    children = _children(node)
-    if len(children) < 5 or not isinstance(children[4], list):
-        raise RuntimeError("@linker debe contener directivas de linker.")
-    items = tuple(children[4])
-    if not all(getattr(item, "name", None) for item in items):
-        raise RuntimeError("No se pudo identificar una directiva dentro de @linker.")
-    return items
-
-
-def _value(node: Any) -> str | bool:
-    values = tuple(
-        (_token_kind(child), _token_value(child))
-        for child in _walk(node)
-        if _token_kind(child) in {"STRING", "BOOL"}
-    )
-    if len(values) != 1:
-        raise RuntimeError("La directiva del linker requiere un único valor.")
-    kind, value = values[0]
-    if kind == "STRING" and isinstance(value, str):
-        return value
-    if kind == "BOOL" and isinstance(value, bool):
-        return value
-    raise RuntimeError("El valor de la directiva del linker no es válido.")
-
-
-def visit(node: Any) -> None:
-    """Valida y materializa el bloque único @linker."""
     if globals.LINKER is not None:
-        raise RuntimeError("Solo puede declararse un bloque @linker por programa.")
+        raise RuntimeError("Solo puede declararse un bloque @block linker por programa.")
 
     values: dict[str, str | bool] = {}
-    for item in _items(node):
-        field = {
-            "EXT": "ext",
-            "NAME": "name",
-            "SEARCHING": "searching",
-        }.get(getattr(item, "name", None))
-        if field is None:
-            raise RuntimeError(f"Directiva de @linker desconocida: {getattr(item, 'name', None)}.")
-        if field in values:
-            raise RuntimeError(f"La directiva '{field}' solo puede aparecer una vez.")
-        values[field] = _value(item)
+    for entry in block.entries:
+        if entry.name not in {"ext", "name", "searching"}:
+            raise RuntimeError(f"Entrada de @block linker desconocida: {entry.name}.")
+        if entry.name in values:
+            raise RuntimeError(f"La entrada '{entry.name}' solo puede aparecer una vez.")
+        values[entry.name] = _value(entry)
 
     missing = [field for field in ("ext", "name", "searching") if field not in values]
     if missing:
         raise RuntimeError(
-            "Faltan directivas obligatorias en @linker: " + ", ".join(missing)
+            "Faltan entradas obligatorias en @block linker: " + ", ".join(missing)
         )
 
     ext = values["ext"]
     name = values["name"]
     searching = values["searching"]
     if not isinstance(ext, str) or not ext:
-        raise RuntimeError(".ext debe ser un string no vacío.")
+        raise RuntimeError("ext debe ser un string no vacío.")
     if not isinstance(name, str) or not name:
-        raise RuntimeError(".name debe ser un string no vacío.")
+        raise RuntimeError("name debe ser un string no vacío.")
     if searching is True:
-        raise RuntimeError(".searching acepta una carpeta, \"\" o false; true no es válido.")
+        raise RuntimeError("searching acepta una carpeta, \"\" o false; true no es válido.")
     if not isinstance(searching, (str, bool)):
-        raise RuntimeError(".searching debe ser un string o false.")
+        raise RuntimeError("searching debe ser un string o false.")
 
     globals.LINKER = globals.LinkerData(
         ext=ext,

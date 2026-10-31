@@ -88,7 +88,7 @@ def compile_pcpi_source(
     program = compile_definition(source_path)
     config = program.context.config
     if config is None:
-        raise PCPIError("La fuente PCP-I requiere un bloque @config.")
+        raise PCPIError("La fuente PCP-I requiere un bloque @block config.")
     selected_rule = _entry_rule(program, entry_rule)
     compilation = compile_mir_source(
         program,

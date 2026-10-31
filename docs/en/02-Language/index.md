@@ -13,13 +13,13 @@ one instruction per line. Comments begin with `;`.
 ## Minimal Shape
 
 ```rif
-@config:
+@block config:
 ; target directives go here
-@configend
+@end
 
-@linker:
+@block linker:
 ; linker directives go here
-@linkerend
+@end
 
 @table registers
 | name | bits |

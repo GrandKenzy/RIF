@@ -23,7 +23,7 @@ for keyword in (
     "insert", "before",
     "dpeek", "reswidth", "vreswidth", "DDEPTH", "dist", "vdist",
     "resdir", "resvdir", "resdist", "resvdist", "SIZE", "VSIZE",
-    "ALIGNMENT", "config", "configend", "linker", "linkerend", "LOAD",
+    "ALIGNMENT", "LOAD",
     *INSTRUCTION_OPCODES,
 ):
     word.add_keyword(keyword, group="keywords")

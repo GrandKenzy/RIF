@@ -1,39 +1,39 @@
 ; Minimal executable ELF64 target for Linux x86-64.
 
-@config:
-.sectiondef ".section"
-.make section "text"
-.make section "data"
-.make section "bss"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "data"
-.defaultsection "text"
-.sectionflags "text" "rx"
-.sectionflags "data" "rw"
-.sectionflags "bss" "rw"
-.sectionvaddr "text" 4194304
-.wordsize 64
-.addresssize 64
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-.bitorder "msb"
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+make section "data"
+make section "bss"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "data"
+defaultsection "text"
+sectionflags "text" "rx"
+sectionflags "data" "rw"
+sectionflags "bss" "rw"
+sectionvaddr "text" 4194304
+wordsize 64
+addresssize 64
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+bitorder "msb"
+@end
 
-@linker:
-.ext ".asm"
-.name "main"
-.searching ""
-@linkerend
+@block linker:
+ext ".asm"
+name "main"
+searching ""
+@end
 
 ; ELF64 header (64 bytes) followed by one PT_LOAD (56 bytes).
 ; Dynamic fields are patched by @before after the MIR has emitted code.

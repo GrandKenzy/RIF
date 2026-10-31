@@ -22,7 +22,7 @@ for Rules, so these two forms have the same structural meaning:
 
 ## Root-Only Declarations
 
-The root scope may contain `@config`, `@linker`, `@table`, `@stack`,
+The root scope may contain `@block config`, `@block linker`, `@table`, `@stack`,
 `@SUPPORTS`, `@ASMVARIANT`, `@define`, `@rule`, and `@LOAD`.
 
 Included files loaded with `@LOAD` may contain only `@define`, `@table`,
@@ -44,11 +44,11 @@ wordsize 8
 @end
 ```
 
-Each line contains a name and zero, one, or two values before the newline. A
-leading dot is also accepted (`.wordsize 8`) to ease migration from the legacy
-directives. A line with more than two values is invalid.
+Each line contains a name and zero, one, or two values before the newline. Dot
+prefixes and the former `@config`/`@linker` headers are not accepted; a line
+with more than two values is invalid.
 
-`config` and `linker` blocks are translated into RIF's existing semantics.
+`config` and `linker` blocks feed RIF's existing semantics directly.
 Blocks with other names are preserved as structured data in
 `program.context.blocks`, so specialized consumers can interpret them without
 adding another parser rule.

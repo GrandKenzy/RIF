@@ -12,32 +12,32 @@ from rif import main as rif_main
 
 
 TARGET = '''\
-@config:
-.sectiondef ".section"
-.make section "text"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "text"
-.defaultsection "text"
-.wordsize 8
-.addresssize 8
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-@configend
-@linker:
-.ext ".asm"
-.name "main"
-.searching ""
-@linkerend
+@block config:
+sectiondef ".section"
+make section "text"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "text"
+defaultsection "text"
+wordsize 8
+addresssize 8
+endianness "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicatesymbols "error"
+strict true
+allowemptysections false
+@end
+@block linker:
+ext ".asm"
+name "main"
+searching ""
+@end
 @rule mov:
 -> IDENT
 -> emmit 1

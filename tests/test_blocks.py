@@ -21,12 +21,12 @@ datasection "text"
 defaultsection "text"
 wordsize 8
 addresssize 64
-endianess "little"
+endianness "little"
 casesensitive true
 symbolprefix "_"
 localprefix "."
 undefinedsymbols "error"
-duplicateSymbols "error"
+duplicatesymbols "error"
 strict true
 allowemptysections false
 bitorder "msb"
@@ -71,6 +71,18 @@ class GenericBlockTests(unittest.TestCase):
             path.write_text(source, encoding="utf-8")
 
             with self.assertRaisesRegex(RuntimeError, "como máximo dos valores"):
+                compile_source(path)
+
+    def test_generic_block_rejects_legacy_dot_prefix(self) -> None:
+        source = CONFIG_BLOCK.replace(
+            'sectiondef ".section"',
+            '.sectiondef ".section"',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid.rif"
+            path.write_text(source, encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "sin prefijo"):
                 compile_source(path)
 
     def test_generic_blocks_survive_precompiled_pack_loading(self) -> None:

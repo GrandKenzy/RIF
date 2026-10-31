@@ -15,8 +15,8 @@ RIF separa tres fases:
 
 El `main.rif` raíz puede contener:
 
-- `@config`, para secciones, tamaño de palabra, endianness, labels y políticas.
-- `@linker`, para descubrir el archivo MIR.
+- `@block config`, para secciones, tamaño de palabra, endianness, labels y políticas.
+- `@block linker`, para descubrir el archivo MIR.
 - `@table`, para metadatos de instrucciones y datos del target.
 - `@define`, para registrar palabras con nombre.
 - `@rule`, para describir el procesamiento de líneas MIR.

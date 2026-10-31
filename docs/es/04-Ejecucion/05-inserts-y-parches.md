@@ -19,7 +19,7 @@ respetando el orden de declaración:
 ```
 
 `.section` selecciona la sección de los payloads siguientes. Si se omite, se
-usa `.defaultsection`. `.bytes` recibe bytes hexadecimales, `.binary` recibe
+usa `defaultsection`. `.bytes` recibe bytes hexadecimales, `.binary` recibe
 bits, `.file` lee un archivo binario relativo al proyecto y `.call` pide un
 payload binario a `funcs.py`.
 
@@ -98,7 +98,7 @@ entradas adicionales.
 
 ### Sintaxis RIF
 
-La fuente debe contener una `@config` normal y una Rule llamada `pcpi` o
+La fuente debe contener una `@block config` normal y una Rule llamada `pcpi` o
 `image`. Si solo existe una Rule, se usa automáticamente. Las instrucciones
 RIF construyen la imagen; cada `reserve` físico alineado a bytes se convierte
 en un pit:
@@ -113,7 +113,7 @@ en un pit:
 `reserve "entry_point" 16` emite dos bytes en cero y registra un pit de dos
 bytes. `vreserve` solo reserva espacio virtual y no genera un pit PCP-I. Los
 `@insert`, `@before`, `padding` y alineamientos existentes de RIF siguen siendo
-válidos; `.sectionalign` también determina el padding del contenedor antes de
+válidos; `sectionalign` también determina el padding del contenedor antes de
 la imagen.
 
 Si la fuente contiene varias Rules, puede seleccionarse una explícitamente:
@@ -160,8 +160,8 @@ Las expresiones nativas son:
 | `#:qvssize(base, "section")` | Fin virtual de una sección relativo a `base`. |
 | `#:calc(a + b)` / `#:calc(a - b)` | Suma o resta entera. |
 
-El layout físico usa el orden de `.make section`. `.sectionalign` alinea en
-bytes y `.sectionvaddr` permite fijar una base virtual. `::SIZE` y `::VSIZE`
+El layout físico usa el orden de `make section`. `sectionalign` alinea en
+bytes y `sectionvaddr` permite fijar una base virtual. `::SIZE` y `::VSIZE`
 siguen siendo cursores locales de cada Rule; las queries nativas inspeccionan
 la imagen completa.
 

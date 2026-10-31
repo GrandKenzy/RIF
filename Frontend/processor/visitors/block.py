@@ -1,11 +1,11 @@
-"""Normalize generic blocks and bridge known blocks to legacy visitors."""
+"""Normalize and dispatch generic ``@block`` declarations."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from Frontend import RIF_LANG_SESSION, globals
+from Frontend import globals
 
 from .config import visit as visit_config
 from .linker import visit as visit_linker
@@ -40,10 +40,10 @@ def _entries(node: Any) -> tuple[globals.BlockEntryData, ...]:
             tokens.pop()
         if not tokens:
             continue
-        if _kind(tokens[0]) == "DOT":
-            tokens.pop(0)
-        if not tokens or _kind(tokens[0]) not in {"IDENT", "KEYWORD"}:
-            raise RuntimeError("Un bloque genérico requiere un nombre por línea.")
+        if _kind(tokens[0]) not in {"IDENT", "KEYWORD"}:
+            raise RuntimeError(
+                "Un bloque genérico requiere un nombre de entrada sin prefijo."
+            )
         if len(tokens) > 3:
             raise RuntimeError(
                 "Un bloque genérico acepta un nombre y como máximo dos valores por línea."
@@ -62,37 +62,19 @@ def _entries(node: Any) -> tuple[globals.BlockEntryData, ...]:
     return tuple(result)
 
 
-def _legacy_source(block_name: str, entries: tuple[globals.BlockEntryData, ...]) -> str:
-    lines = [f"@{block_name}:"]
-    for entry in entries:
-        rendered = " ".join(value.raw or str(value.value) for value in entry.values)
-        lines.append(f".{entry.name}{(' ' + rendered) if rendered else ''}")
-    lines.append(f"@{block_name}end")
-    return "\n".join(lines) + "\n"
-
-
-def _visit_legacy(block_name: str, entries: tuple[globals.BlockEntryData, ...], source_path: str | None) -> None:
-    source = _legacy_source(block_name, entries)
-    name = source_path or f"<block {block_name}>"
-    RIF_LANG_SESSION.load()
-    ast = RIF_LANG_SESSION.parse(RIF_LANG_SESSION.tokenize(source, name), name)
-    if not ast or len(ast) != 1:
-        raise RuntimeError(f"No se pudo materializar el bloque genérico '{block_name}'.")
-    if block_name == "config":
-        visit_config(ast[0])
-    else:
-        visit_linker(ast[0])
-
-
 def visit(node: Any, source_path: str | None = None) -> None:
+    """Validate, preserve, and dispatch one generic block."""
+
     block_name = str(getattr(node, "block_name", "")).lower()
     if not block_name:
         raise RuntimeError("Un bloque genérico requiere un nombre.")
     entries = _entries(node)
     block = globals.BlockData(block_name, entries, source_path)
     globals.BLOCKS.setdefault(block_name, []).append(block)
-    if block_name in {"config", "linker"}:
-        _visit_legacy(block_name, entries, source_path)
+    if block_name == "config":
+        visit_config(block)
+    elif block_name == "linker":
+        visit_linker(block)
 
 
 __all__ = ["visit"]

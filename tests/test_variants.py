@@ -159,11 +159,11 @@ class VariantProcessorTests(unittest.TestCase):
             folder.mkdir()
             variant = folder / "thumb.rif"
             root.write_text(
-                "@linker:\n"
-                '.ext ".rif"\n'
-                '.name "main"\n'
-                '.searching "variants"\n'
-                "@linkerend\n"
+                "@block linker:\n"
+                'ext ".rif"\n'
+                'name "main"\n'
+                'searching "variants"\n'
+                "@end\n"
                 + self.declaration("thumb"),
                 encoding="utf-8",
             )
@@ -177,11 +177,11 @@ class VariantProcessorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "main.rif"
             root.write_text(
-                "@linker:\n"
-                '.ext ".rif"\n'
-                '.name "main"\n'
-                ".searching false\n"
-                "@linkerend\n"
+                "@block linker:\n"
+                'ext ".rif"\n'
+                'name "main"\n'
+                "searching false\n"
+                "@end\n"
                 + self.declaration("thumb"),
                 encoding="utf-8",
             )
@@ -210,11 +210,11 @@ class VariantProcessorTests(unittest.TestCase):
             variant = Path(directory) / "thumb.rif"
             root.write_text(self.declaration("thumb"), encoding="utf-8")
             variant.write_text(
-                "@linker:\n"
-                '.ext ".rif"\n'
-                '.name "nested"\n'
-                '.searching ""\n'
-                "@linkerend\n",
+                "@block linker:\n"
+                'ext ".rif"\n'
+                'name "nested"\n'
+                'searching ""\n'
+                "@end\n",
                 encoding="utf-8",
             )
 

@@ -134,7 +134,7 @@ def _prepare_target(
 
 def _require_target_config(program: CompiledRuleSet) -> globals.ConfigData:
     if program.context.config is None:
-        raise MIRInputError("La definición RIF requiere un bloque @config.")
+        raise MIRInputError("La definición RIF requiere un bloque @block config.")
     return program.context.config
 
 
@@ -206,7 +206,7 @@ def compile_mir_tokens(
     config = _require_target_config(program)
     selected_section = section or config.entrysection
     if selected_section not in config.sections:
-        raise MIRInputError(f"La sección MIR '{selected_section}' no existe en @config.")
+        raise MIRInputError(f"La sección MIR '{selected_section}' no existe en @block config.")
 
     image = AssemblyImage(config)
     machine = RIFMachine(
@@ -324,7 +324,7 @@ def compile_mir_file(
     prepared = _prepare_target(target)
     _config = _require_target_config(prepared.program)
     if prepared.program.context.linker is None:
-        raise MIRInputError("La entrada por archivo requiere un bloque @linker.")
+        raise MIRInputError("La entrada por archivo requiere un bloque @block linker.")
     linker = prepared.program.context.linker
     expected = linker.ext
     if not expected.startswith("."):

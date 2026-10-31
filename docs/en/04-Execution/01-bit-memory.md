@@ -14,7 +14,7 @@ Normal emission advances the physical cursor, exposed as `::SIZE`:
 -> emitbits 5 3
 ```
 
-`emmit` uses `.wordsize`. `put` and `ebit` have fixed widths. `emitbits` takes
+`emmit` uses `wordsize`. `put` and `ebit` have fixed widths. `emitbits` takes
 an explicit value and width and is useful for arbitrary fields.
 
 ## Rewriting Existing Bits
@@ -29,8 +29,8 @@ the datastack. `patchbits OFFSET WIDTH VALUE` rewrites an allocated range and
 does not advance either cursor. An out-of-range operation fails before changing
 the buffer.
 
-For widths divisible by eight, the configured `.endianess` is used. Other
-widths are read and written according to `.bitorder`.
+For widths divisible by eight, the configured `endianness` is used. Other
+widths are read and written according to `bitorder`.
 
 ## Padding and Alignment
 
@@ -102,5 +102,5 @@ returns a masked serialized copy; `view()` returns a live byte-level view.
 `BitQuery` exposes the integer value, individual bits, span, and aligned raw
 bytes when the queried range covers complete bytes.
 
-`AssemblyImage.render()` can render configured sections using `.sectiondef`,
-`.sectionend`, `.entrylabel`, `.labelend`, `.comment`, and section alignment.
+`AssemblyImage.render()` can render configured sections using `sectiondef`,
+`sectionend`, `entrylabel`, `labelend`, `comment`, and section alignment.

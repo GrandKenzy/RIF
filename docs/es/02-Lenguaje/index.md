@@ -13,13 +13,13 @@ instrucción por línea. Los comentarios comienzan con `;`.
 ## Forma mínima
 
 ```rif
-@config:
+@block config:
 ; directivas del target
-@configend
+@end
 
-@linker:
+@block linker:
 ; directivas del linker
-@linkerend
+@end
 
 @table registers
 | name | bits |
@@ -32,5 +32,5 @@ _
 -> fits $registers.bits
 ```
 
-Para compilar MIR, el bloque `@config` debe incluir todas sus directivas
+Para compilar MIR, el bloque `@block config` debe incluir todas sus directivas
 obligatorias.
