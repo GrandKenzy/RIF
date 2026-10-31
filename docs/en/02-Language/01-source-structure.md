@@ -32,6 +32,27 @@ Included files loaded with `@LOAD` may contain only `@define`, `@table`,
 This scope rule prevents a loaded file from silently replacing the target's
 memory layout or linker policy.
 
+## Generic blocks
+
+The generic block form for declaring structured data is:
+
+```rif
+@block config:
+sectiondef ".section"
+make section "text"
+wordsize 8
+@end
+```
+
+Each line contains a name and zero, one, or two values before the newline. A
+leading dot is also accepted (`.wordsize 8`) to ease migration from the legacy
+directives. A line with more than two values is invalid.
+
+`config` and `linker` blocks are translated into RIF's existing semantics.
+Blocks with other names are preserved as structured data in
+`program.context.blocks`, so specialized consumers can interpret them without
+adding another parser rule.
+
 ## Definitions
 
 `@define` registers a named language word:

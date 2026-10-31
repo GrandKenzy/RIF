@@ -97,6 +97,32 @@ class BeforePatchData:
 
 
 @dataclass(frozen=True)
+class BlockValueData:
+    """One value captured by a generic block line."""
+
+    kind: str
+    value: Any
+    raw: str | None = None
+
+
+@dataclass(frozen=True)
+class BlockEntryData:
+    """A generic block line: one name and zero to two values."""
+
+    name: str
+    values: tuple[BlockValueData, ...] = ()
+
+
+@dataclass(frozen=True)
+class BlockData:
+    """A generic block preserved in the compiled target context."""
+
+    name: str
+    entries: tuple[BlockEntryData, ...]
+    source_path: str | None = None
+
+
+@dataclass(frozen=True)
 class LinkerData:
     """Configuración de descubrimiento de archivos del linker."""
 
@@ -152,6 +178,7 @@ class TargetContext:
     supports: dict[str, SupportData] = field(default_factory=dict)
     asm_variants: dict[str, AsmVariantData] = field(default_factory=dict)
     loaded_sources: dict[str, str] = field(default_factory=dict)
+    blocks: dict[str, tuple[BlockData, ...]] = field(default_factory=dict)
 
 
 def snapshot_target_context() -> TargetContext:
@@ -184,6 +211,7 @@ def snapshot_target_context() -> TargetContext:
         supports=dict(SUPPORTS),
         asm_variants=dict(ASM_VARIANTS),
         loaded_sources=dict(LOADED_SOURCES),
+        blocks={name: tuple(items) for name, items in BLOCKS.items()},
     )
 
 
@@ -210,6 +238,8 @@ def activate_target_context(context: TargetContext) -> None:
     ASM_VARIANTS.update(context.asm_variants)
     LOADED_SOURCES.clear()
     LOADED_SOURCES.update(context.loaded_sources)
+    BLOCKS.clear()
+    BLOCKS.update({name: list(items) for name, items in context.blocks.items()})
     VARIANT_STACK.clear()
 
 
@@ -252,6 +282,10 @@ SOURCE_PROVIDER: Any | None = None
 INSERTS: list[InsertData] = []
 BEFORE: list[BeforePatchData] = []
 
+# Generic @block data. Known blocks may be desugared into legacy semantic
+# visitors; unknown blocks remain available to higher-level consumers.
+BLOCKS: dict[str, list[BlockData]] = {}
+
 __all__ = [
     "STACK",
     "STACK_SIZE",
@@ -263,6 +297,9 @@ __all__ = [
     "ConfigData",
     "InsertData",
     "BeforePatchData",
+    "BlockValueData",
+    "BlockEntryData",
+    "BlockData",
     "CONFIG",
     "LinkerData",
     "LINKER",
@@ -280,4 +317,5 @@ __all__ = [
     "SOURCE_PROVIDER",
     "INSERTS",
     "BEFORE",
+    "BLOCKS",
 ]

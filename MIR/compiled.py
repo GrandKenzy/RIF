@@ -89,6 +89,26 @@ def _encode(value: Any) -> Any:
             "expression": _encode(value.expression),
             "source_path": value.source_path,
         }
+    if isinstance(value, globals.BlockValueData):
+        return {
+            "__type__": "block_value",
+            "kind": value.kind,
+            "value": _encode(value.value),
+            "raw": value.raw,
+        }
+    if isinstance(value, globals.BlockEntryData):
+        return {
+            "__type__": "block_entry",
+            "name": value.name,
+            "values": _encode(value.values),
+        }
+    if isinstance(value, globals.BlockData):
+        return {
+            "__type__": "block",
+            "name": value.name,
+            "entries": _encode(value.entries),
+            "source_path": value.source_path,
+        }
     if isinstance(value, Operand):
         return {
             "__type__": "operand",
@@ -161,6 +181,23 @@ def _decode(value: Any) -> Any:
             offset=int(value["offset"]),
             width=None if value.get("width") is None else int(value["width"]),
             expression=_decode(value.get("expression")),
+            source_path=value.get("source_path"),
+        )
+    if kind == "block_value":
+        return globals.BlockValueData(
+            kind=str(value["kind"]),
+            value=_decode(value.get("value")),
+            raw=value.get("raw"),
+        )
+    if kind == "block_entry":
+        return globals.BlockEntryData(
+            name=str(value["name"]),
+            values=tuple(_decode(value.get("values"))),
+        )
+    if kind == "block":
+        return globals.BlockData(
+            name=str(value["name"]),
+            entries=tuple(_decode(value.get("entries"))),
             source_path=value.get("source_path"),
         )
     if kind == "operand":
@@ -324,6 +361,7 @@ def context_to_dict(
         "supports": _encode(selected.supports),
         "asm_variants": _encode(selected.asm_variants),
         "loaded_sources": dict(selected.loaded_sources),
+        "blocks": _encode(selected.blocks),
     }
 
 
@@ -395,6 +433,9 @@ def context_from_dict(
     variants = _decode(
         context.get("asm_variants", {"__type__": "dict", "items": []})
     )
+    blocks = _decode(
+        context.get("blocks", {"__type__": "dict", "items": []})
+    )
     return globals.TargetContext(
         config=_load_config(context.get("config")),
         linker=linker,
@@ -404,6 +445,7 @@ def context_from_dict(
         supports=supports,
         asm_variants=variants,
         loaded_sources=dict(context.get("loaded_sources", {})),
+        blocks=blocks,
     )
 
 

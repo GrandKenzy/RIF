@@ -13,6 +13,7 @@ from .visitors.stack import visit as visit_stack
 from .visitors.table import visit as visit_table
 from .visitors.variant import visit_support, visit_variant
 from .visitors.artifacts import visit_before, visit_insert
+from .visitors.block import visit as visit_block
 from .sources import load_source
 from .variants import current_variant, enter_variant, exit_variant, load_variants as _load_variants
 
@@ -64,6 +65,7 @@ def process(
                 "CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT",
                 "TABLE", "STACK", "RULE", "LOAD_FILE",
                 "INSERT", "BEFORE",
+                "BLOCK",
             },
             "include": {"DEFINE", "TABLE", "RULE", "LOAD_FILE"},
             "variant": {"DEFINE", "RULE"},
@@ -95,6 +97,8 @@ def process(
                 visit_define(node)
             elif name == "SUPPORTS":
                 visit_support(node)
+            elif name == "BLOCK":
+                visit_block(node, source_path=source_key)
 
         for node in nodes:
             if getattr(node, "name", type(node).__name__) == "ASMVARIANT":
@@ -102,7 +106,7 @@ def process(
 
         for node in nodes:
             name = getattr(node, "name", type(node).__name__)
-            if name in {"CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT"}:
+            if name in {"CONFIG", "LINKER", "DEFINE", "SUPPORTS", "ASMVARIANT", "BLOCK"}:
                 continue
             if name == "TABLE":
                 visit_table(node)

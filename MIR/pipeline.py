@@ -47,6 +47,7 @@ def _reset_context() -> None:
     globals.SOURCE_PROVIDER = None
     globals.INSERTS.clear()
     globals.BEFORE.clear()
+    globals.BLOCKS.clear()
 
 
 def parse_source(path: str | Path):

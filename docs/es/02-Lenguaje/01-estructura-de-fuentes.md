@@ -32,6 +32,28 @@ y más `@LOAD`. Un archivo de variante solo puede contener `@define` y `@rule`.
 Así una fuente cargada no reemplaza silenciosamente la memoria ni la política
 del target.
 
+## Bloques genéricos
+
+La forma genérica de declarar datos por bloques es:
+
+```rif
+@block config:
+sectiondef ".section"
+make section "text"
+wordsize 8
+@end
+```
+
+Cada línea contiene un nombre y cero, uno o dos valores antes del salto de
+línea. También se acepta un punto delante del nombre (`.wordsize 8`) para
+facilitar la migración desde las directivas antiguas. Una línea con más de dos
+valores es inválida.
+
+Los bloques `config` y `linker` se traducen a la semántica existente de RIF.
+Los bloques con otros nombres se conservan como datos estructurados en
+`program.context.blocks`, para que los consumidores especializados puedan
+interpretarlos sin añadir una nueva regla al parser.
+
 ## Definiciones
 
 ```rif

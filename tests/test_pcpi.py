@@ -22,27 +22,27 @@ PIT = struct.Struct("<HH")
 
 
 SOURCE = '''\
-@config:
-.sectiondef ".section"
-.make section "text"
-.sectionend ":"
-.entrysection "text"
-.entrylabel "_start"
-.comment ";"
-.labelend ":"
-.datasection "text"
-.defaultsection "text"
-.wordsize 8
-.addresssize 64
-.endianess "little"
-.casesensitive true
-.symbolprefix "_"
-.localprefix "."
-.undefinedsymbols "error"
-.duplicateSymbols "error"
-.strict true
-.allowemptysections false
-@configend
+@block config:
+sectiondef ".section"
+make section "text"
+sectionend ":"
+entrysection "text"
+entrylabel "_start"
+comment ";"
+labelend ":"
+datasection "text"
+defaultsection "text"
+wordsize 8
+addresssize 64
+endianess "little"
+casesensitive true
+symbolprefix "_"
+localprefix "."
+undefinedsymbols "error"
+duplicateSymbols "error"
+strict true
+allowemptysections false
+@end
 
 @rule pcpi:
 -> emitfr "01111111" "01000100"

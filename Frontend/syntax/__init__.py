@@ -72,6 +72,7 @@ from .items.declarations import (
 )
 from .items.table import TABLE
 from .items.artifacts import ARTIFACT_BLOCK
+from .items.blocks import BLOCK
 from .items.values import (
     ALIGNMENT_VALUE,
     CALL_VALUE,
@@ -132,6 +133,7 @@ class ENTRYPOINT(cmb.RuleItem):
         cmb.Ref(RULE),
         cmb.Ref(STACK),
         cmb.Ref(ARTIFACT_BLOCK),
+        cmb.Ref(BLOCK),
     )
 
 
@@ -225,4 +227,5 @@ __all__ = [
     "VRESWIDTH_VALUE",
     "ENTRYPOINT",
     "ARTIFACT_BLOCK",
+    "BLOCK",
 ]

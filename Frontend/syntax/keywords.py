@@ -19,7 +19,7 @@ INSTRUCTION_OPCODES = {
 }
 INSTRUCTION_OPCODES.update({"KW": "kw", "JMP": "jmp", "CALL": "call"})
 for keyword in (
-    "table", "end", "define", "rule", "stack", "call", "emitfrend",
+    "table", "end", "block", "define", "rule", "stack", "call", "emitfrend",
     "insert", "before",
     "dpeek", "reswidth", "vreswidth", "DDEPTH", "dist", "vdist",
     "resdir", "resvdir", "resdist", "resvdist", "SIZE", "VSIZE",
