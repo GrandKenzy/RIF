@@ -113,6 +113,44 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(storage.value_type("count"), "int32")
         self.assertEqual(storage.value_type("greeting"), "str")
 
+    def test_store_encodes_inline_binary_blocks_in_version_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "gba.store"
+            source.write_text(
+                'MAGIC "store"\n'
+                "VERSION 2\n"
+                "@BINARY MODE_3\n"
+                "01 03 A0 E3,\n"
+                "03 10 A0 E3 01 1B 81 E3\n"
+                "B0 10 C0 E1\n"
+                "@END\n",
+                encoding="utf-8",
+            )
+
+            definition = parse_store(source)
+            storage = parse_storage(compile_store(source).storage)
+
+        self.assertEqual(definition.items[0].kind, "INLINE_BINARY")
+        self.assertEqual(
+            storage.payload("MODE_3"),
+            bytes.fromhex("0103A0E30310A0E3011B81E3B010C0E1"),
+        )
+
+    def test_store_rejects_inline_binary_in_version_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "invalid.store"
+            source.write_text(
+                'MAGIC "store"\n'
+                "VERSION 1\n"
+                "@BINARY MODE_3\n"
+                "FF 00\n"
+                "@END\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(StoreError, "@BINARY requieren VERSION 2"):
+                parse_store(source)
+
     def test_store_loads_files_and_reuses_selected_container_entries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

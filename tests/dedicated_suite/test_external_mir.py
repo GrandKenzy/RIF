@@ -100,11 +100,11 @@ class ExternalMIRTests(unittest.TestCase):
             target = Path(directory) / "main.rif"
             target.write_text(
                 TARGET.replace("    default text\n", "    default text\n    vaddr text 4096\n")
-                + "\n@rule mark:\n. IDENT\n. eword 1\n. mark\n. IDENT\n",
+                + "\n@rule mark_symbol:\n. IDENT\n. eword 1\n. mark\n. IDENT\n",
                 encoding="utf-8",
             )
             program = compile_definition(target)
-            result = compile_mir_source(program, "mark label\n")
+            result = compile_mir_source(program, "mark_symbol label\n")
 
         self.assertEqual(result.symbols, {"label": 4097})
         self.assertEqual(result.context.symbols["label"].section, "text")
@@ -115,7 +115,7 @@ class ExternalMIRTests(unittest.TestCase):
             target.write_text(
                 TARGET.replace("    default text\n", "    default text\n    vaddr text 4096\n")
                 + "\n"
-                "@rule mark:\n"
+                "@rule mark_symbol:\n"
                 ". IDENT\n"
                 ". mark\n"
                 ". IDENT\n"
@@ -129,8 +129,8 @@ class ExternalMIRTests(unittest.TestCase):
                 encoding="utf-8",
             )
             program = compile_definition(target)
-            forward = compile_mir_source(program, "jmp target\nmark target\n")
-            backward = compile_mir_source(program, "mark target\njmp target\n")
+            forward = compile_mir_source(program, "jmp target\nmark_symbol target\n")
+            backward = compile_mir_source(program, "mark_symbol target\njmp target\n")
 
         self.assertEqual(forward.binary, b"\xE9\x00\x00\x00\x00")
         self.assertEqual(backward.binary, b"\xE9\xFB\xFF\xFF\xFF")
@@ -147,7 +147,7 @@ class ExternalMIRTests(unittest.TestCase):
             "    rel24 16 pc\n"
             "    abs24 24 abs\n"
             "@end\n\n"
-            "@rule mark:\n"
+            "@rule mark_symbol:\n"
             ". IDENT\n"
             ". mark\n"
             ". IDENT\n"
@@ -169,8 +169,8 @@ class ExternalMIRTests(unittest.TestCase):
             target = Path(directory) / "main.rif"
             target.write_text(target_source, encoding="utf-8")
             program = compile_definition(target)
-            relative = compile_mir_source(program, "rel target\nmark target\n")
-            absolute = compile_mir_source(program, "absolute target\nmark target\n")
+            relative = compile_mir_source(program, "rel target\nmark_symbol target\n")
+            absolute = compile_mir_source(program, "absolute target\nmark_symbol target\n")
 
         self.assertEqual(relative.binary, b"\xE9\x00\x00")
         self.assertEqual(absolute.binary, b"\x03\x10\x00")
@@ -224,7 +224,7 @@ class ExternalMIRTests(unittest.TestCase):
                     "    default text\n    vaddr text 4096\n    vaddr data 8192\n",
                 )
                 + "\n"
-                "@rule mark:\n"
+                "@rule mark_symbol:\n"
                 ". IDENT\n"
                 ". mark\n"
                 ". IDENT\n",
@@ -234,9 +234,9 @@ class ExternalMIRTests(unittest.TestCase):
             result = compile_mir_source(
                 program,
                 "::RIF_SECTION data\n"
-                "mark data_label\n"
+                "mark_symbol data_label\n"
                 "::RIF_SECTION text\n"
-                "mark text_label\n",
+                "mark_symbol text_label\n",
             )
 
         self.assertEqual(result.context.section_name, "text")
@@ -267,11 +267,11 @@ class ExternalMIRTests(unittest.TestCase):
     search_path ""
 @end
 
-@rule emit:
+@rule emit_rule:
 . IDENT
 . eword 1
 
-@rule reserve:
+@rule reserve_rule:
 . IDENT
 . vreserve "scratch" 16
 '''
@@ -281,7 +281,7 @@ class ExternalMIRTests(unittest.TestCase):
             program = compile_definition(target)
             result = compile_mir_source(
                 program,
-                "emit\n::RIF_SECTION bss\nreserve\n",
+                "emit_rule\n::RIF_SECTION bss\nreserve_rule\n",
             )
 
         text = result.image.sections["text"]
@@ -582,7 +582,7 @@ class ExternalMIRTests(unittest.TestCase):
             '@rule capture:\n'
             '. IDENT\n'
             '. dget ::registers.names : bits\n'
-            '@rule emit:\n'
+            '@rule emit_rule:\n'
             '. IDENT\n'
             '. fit dget\n',
         )
@@ -592,7 +592,7 @@ class ExternalMIRTests(unittest.TestCase):
             package = root / "target.pack"
             source = root / "program.asm"
             target.write_text(target_source, encoding="utf-8")
-            source.write_text("capture rax\nemit 258\n", encoding="utf-8")
+            source.write_text("capture rax\nemit_rule 258\n", encoding="utf-8")
 
             direct = compile_mir_source(compile_definition(target), source.read_text(encoding="utf-8"))
             self.assertEqual(direct.binary, b"\x02")

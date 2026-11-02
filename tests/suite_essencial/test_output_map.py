@@ -29,7 +29,7 @@ TARGET = '''\
     search_path ""
 @end
 
-@rule emit:
+@rule emit_rule:
 . IDENT
 . bits 144 8
 '''
@@ -46,7 +46,7 @@ class OutputMapTests(unittest.TestCase):
 
             result = compile_mir_source(
                 program,
-                "emit\n",
+                "emit_rule\n",
                 map_output=output_map,
             )
 
@@ -55,8 +55,8 @@ class OutputMapTests(unittest.TestCase):
             self.assertEqual(report["format"], "RIF_OUTPUT_MAP")
             self.assertEqual(report["binary"]["size"], 1)
             self.assertEqual(report["sections"][0]["file_size"], 1)
-            self.assertEqual(report["mir"]["executed_rules"][0]["rule"], "emit")
-            self.assertEqual(report["rules"][0]["name"], "emit")
+            self.assertEqual(report["mir"]["executed_rules"][0]["rule"], "emit_rule")
+            self.assertEqual(report["rules"][0]["name"], "emit_rule")
             self.assertEqual(result.output_map(), report)
 
 

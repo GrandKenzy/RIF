@@ -12,8 +12,8 @@ set R0 = 42
 copy R8, R0
 add R8, R7
 increase R8, 5
-store R8, R4, 256
-load R9, R4, 256
+store_mem R8, R4, 256
+load_mem R9, R4, 256
 noop
 return
 ```
@@ -23,8 +23,8 @@ mapping is kept in tables, so the names are not built into RIF. The copied
 `amd64_*.rif` modules add the complete width-specific register and instruction
 families, including the original architectural names.
 
-`set` and `increase` immediate values use signed 32-bit operands. `load` and
-`store` use an explicit base register and signed 32-bit displacement. The
+`set` and `increase` immediate values use signed 32-bit operands. `load_mem` and
+`store_mem` use an explicit base register and signed 32-bit displacement. The
 target is raw and OS-neutral: it does not contain Linux, ELF, QEMU, VGA,
 framebuffer, or host-ABI dependencies.
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from Frontend import globals
 from Frontend.session import CompilationSession
+from Frontend.syntax.keywords import validate_user_name
 from Frontend.syntax.items.instructions import normalize_instruction
 
 
@@ -41,6 +42,7 @@ def visit(
 ) -> None:
     """Registra una regla y deja su ejecución para una fase posterior."""
     name = _rule_name(node)
+    validate_user_name(name, "@rule")
     if name in session.rules:
         previous = session.rules[name].source_path or "<memoria>"
         current = source_path or "<memoria>"

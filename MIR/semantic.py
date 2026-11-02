@@ -251,6 +251,8 @@ _ARITY: dict[str, tuple[int, int | None]] = {
     "dpush": (1, 1),
     "dget": (1, 1),
     "dpop": (0, 0),
+    "arm_imm8": (0, 0),
+    "arm_imm_rotate": (0, 0),
     "bits": (2, 2),
     "read_bits": (2, 2),
     "patch_bits": (3, 3),

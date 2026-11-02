@@ -101,6 +101,13 @@ Las operaciones binarias usan los nombres canónicos `nibbles`, `emit`,
 `vreserve` conservan sus nombres porque no recibieron un reemplazo en esta
 revisión.
 
+Los nombres de opcodes, keywords, tokens sintácticos y operaciones visibles
+(`frameend`, `dpeek`, `ddepth`, entre otros) pertenecen al espacio reservado de
+RIF. `@rule`, `@table`, `@block`, `@define`, `@SUPPORTS` y `@ASMVARIANT` los
+rechazan sin distinguir mayúsculas y minúsculas. Los nombres internos de
+normalización (`store`, `consumer`, `table_matcher`) no se reservan y pueden
+ser vocabulario del target.
+
 `mark` define un símbolo nativo en la posición actual sin consumir el token.
 `RIFMachine.symbols` conserva sus offsets físico/virtual relativos y
 `MIRCompilation.symbols` los expone como direcciones virtuales absolutas tras
@@ -167,9 +174,10 @@ Los controles de Rule usan `JUMP`, `JUMPIF`, `BREAK`, `ERROR`, `save`, `load`,
   desde fuentes independientes `.store`, no desde el flujo `.rif`. Su cargador
   seguro alimenta `main.py --doctor-storage`.
 - `rif_tools/store.py`: parser y compilador de fuentes `.store`; valida `MAGIC`,
-  `VERSION`, bloques `@ITEM IMAGE`/`@ITEM AUDIO`/`@ITEM BINARY`, variables
-  tipadas, `@FILE`, `@REQST` y `@CONTAINER`. VERSION 1 conserva el formato
-  simple; VERSION 2 habilita valores tipados y `@REQST`. Las rutas permanecen
+  `VERSION`, bloques `@ITEM IMAGE`/`@ITEM AUDIO`/`@ITEM BINARY`, bloques
+  binarios inline `@BINARY` en VERSION 2, variables tipadas, `@FILE`, `@REQST`
+  y `@CONTAINER`. VERSION 1 conserva el formato simple; VERSION 2 habilita
+  valores tipados, `@REQST` y bytes inline. Las rutas permanecen
   acotadas al store, los containers importan labels validados y
   `BINARY`/`@FILE` copian archivos opacos byte por byte sin invocar plugins.
 - `MIR/external.py`: consumo de entradas MIR externas y validación del linker.

@@ -55,7 +55,7 @@ __
 @rule nop:
 . eword 0
 
-@rule emit:
+@rule emit_rule:
 . eword 1
 '''
 

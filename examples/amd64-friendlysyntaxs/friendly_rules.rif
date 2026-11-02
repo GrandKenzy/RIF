@@ -1,4 +1,4 @@
-; Friendly syntax: SET, COPY, ADD, INCREASE, LOAD, STORE, RETURN and NOOP.
+; Friendly syntax: SET, COPY, ADD, INCREASE, LOAD_MEM, STORE_MEM, RETURN and NOOP.
 ; The names are arbitrary target-level vocabulary, not AMD64 built-ins.
 
 ; SET r64, imm32 -> mov r64, imm32 (sign-extended by AMD64).
@@ -63,8 +63,8 @@
 . bits $dst.lo 3
 . fit_signed_exact 32
 
-; LOAD destination, base, displacement32.
-@rule load:
+; LOAD_MEM destination, base, displacement32.
+@rule load_mem:
 . IDENT
 . $dst.name, IDENT
 . COMMA
@@ -84,8 +84,8 @@
 . bits $base.lo 3
 . fit_signed_exact 32
 
-; STORE source, base, displacement32.
-@rule store:
+; STORE_MEM source, base, displacement32.
+@rule store_mem:
 . IDENT
 . $src.name, IDENT
 . COMMA

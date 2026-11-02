@@ -56,7 +56,7 @@ assets.ENDIANNESS 1
 | Versión | Funciones disponibles |
 | :---: | :--- |
 | `1` | Media local, `BINARY` opaco, `@FILE` y selección de entradas raw de contenedores. Sin declaraciones tipadas ni `@REQST`. |
-| `2` | Todo lo de la versión 1, más literales tipados y `@REQST` acotado. El índice conserva el tipo. |
+| `2` | Todo lo de la versión 1, más literales tipados, `@REQST` acotado y bloques `@BINARY` inline. El índice conserva el tipo. |
 
 RIF acepta actualmente solo las versiones `1` y `2`. La versión `3` no es un
 formato actual; queda reservada para futuras funciones o macros.

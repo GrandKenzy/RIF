@@ -6,6 +6,7 @@ from typing import Any
 
 from Frontend import globals
 from Frontend.session import CompilationSession
+from Frontend.syntax.keywords import validate_user_name
 
 
 _LITERAL_KINDS = {"NUMBER", "DECIMAL", "IDENT", "STRING", "BOOL"}
@@ -375,6 +376,7 @@ def visit(node: Any, session: CompilationSession) -> None:
     """Register a table declaration for dependency-aware materialization."""
 
     name = _table_name(node)
+    validate_user_name(name, "@table")
     if name in session.tables or name in session.pending_tables:
         raise RuntimeError(f"La tabla '{name}' ya fue declarada.")
 

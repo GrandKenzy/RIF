@@ -49,6 +49,28 @@ the format supported by the selected image or audio converter. The source
 extension must match the declared source format. For `BINARY`, `raw` means
 opaque bytes, not a parser or an assembler.
 
+## Inline binary blocks
+
+`VERSION 2` can carry a small raw binary payload directly in the source. Use
+`@BINARY`, an identifier label, one or more lines of two-digit hexadecimal
+bytes, and `@END`:
+
+```text
+MAGIC "store"
+VERSION 2
+
+@BINARY MODE_3
+01 03 A0 E3,
+03 10 A0 E3 01 1B 81 E3
+B0 10 C0 E1
+@END
+```
+
+Whitespace separates bytes and commas are optional. A `0x` prefix is also
+accepted. The block is stored as one opaque payload and does not run a plugin.
+`@BINARY` is restricted to version 2; use `@FILE` or `@ITEM BINARY` for
+version 1 sources.
+
 ## Typed exact-byte values
 
 Typed values require `VERSION 2`:

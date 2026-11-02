@@ -73,6 +73,11 @@ adding another parser rule.
 Definitions are labels in the RIF language. They do not allocate stack slots,
 emit bits, or create runtime values.
 
+RIF opcodes, keywords, token names, and syntax operation names are reserved.
+Rules, tables, generic blocks, definitions, and variants cannot reuse those
+names, regardless of case. Target vocabulary should use names such as `move`,
+`load_mem`, or `mark_symbol` instead of shadowing RIF syntax.
+
 ## Rules
 
 Rules are named instruction procedures:

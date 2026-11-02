@@ -58,9 +58,9 @@ def checks(rif_root: Path, gram_root: Path | None = None) -> None:
     abs_demo = '''_start
 movaddr64 r15, data
 jmp_label continue
-mark data
+mark_symbol data
 dqaddr data
-mark continue
+mark_symbol continue
 jmp8_label data
 '''
     result2 = compile_mir_source(text, abs_demo)
@@ -136,7 +136,7 @@ jmp8_label data
     errors = (
         ('undefined', '_start\njmp_label missing\n', 'no definido'),
         ('duplicate', '_start\nmark same\nmark same\n', 'duplicado'),
-        ('short-branch-overflow', '_start\njmp8_label far\n'+'nop\n'*200+'mark far\n', 'no cabe en pc8'),
+        ('short-branch-overflow', '_start\njmp8_label far\n'+'nop\n'*200+'mark_symbol far\n', 'no cabe en pc8'),
         ('invalid-symbol', '_start\njmp_label 123\n', 'identificador'),
     )
     for tag, src, message in errors:

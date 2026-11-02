@@ -19,12 +19,24 @@ class RelocationSpec:
 
     @property
     def relative(self) -> bool:
-        return self.mode == "pc"
+        return self.mode in {"pc", "arm_pc24"}
 
     def encode(self, value: int) -> int:
+        if self.mode == "arm_pc24":
+            # ARM B/BL use the architectural PC (instruction address + 8),
+            # while RIF records the address of the next emitted instruction.
+            value -= 4
+            if value % 4:
+                raise ValueError(
+                    f"{self.name}: el destino ARM no está alineado a una palabra."
+                )
+            value //= 4
+            mode = "pc"
+        else:
+            mode = "pc" if self.relative else "abs"
         try:
             return execute_operation(
-                "encode_relocation", value, self.width_bits, "pc" if self.relative else "abs"
+                "encode_relocation", value, self.width_bits, mode
             )
         except OperationError as exc:
             raise ValueError(f"{self.name}: {exc}") from exc
@@ -55,9 +67,10 @@ def relocation_specs(context: globals.TargetContext) -> dict[str, RelocationSpec
     """Return built-ins plus declarations from ``@block relocations``.
 
     Each generic block line is ``name width mode``. ``mode`` is ``pc`` for a
-    signed displacement from the next virtual instruction byte, or ``abs``
-    for an unsigned absolute virtual address. The declaration is deliberately
-    independent of any ISA.
+    signed displacement from the next virtual instruction byte, ``abs`` for
+    an unsigned absolute virtual address, or ``arm_pc24`` for an ARM branch
+    displacement (PC+8, word-scaled, signed). The declaration is deliberately
+    independent of any ISA except for explicitly named target modes.
     """
 
     specs = dict(_BUILTINS)
@@ -79,12 +92,12 @@ def relocation_specs(context: globals.TargetContext) -> dict[str, RelocationSpec
                 )
             if mode in {"relative", "pcrel", "pc"}:
                 mode = "pc"
+            elif mode in {"arm_pc24", "arm-branch24", "arm_branch24"}:
+                mode = "arm_pc24"
             elif mode in {"absolute", "abs"}:
                 mode = "abs"
             else:
-                raise ValueError(
-                    f"El modo de la relocación '{entry.name}' debe ser pc o abs."
-                )
+                raise ValueError(f"El modo de la relocación '{entry.name}' no es válido.")
             name = entry.name
             if not name or name in specs:
                 raise ValueError(f"La relocación '{name}' está duplicada.")

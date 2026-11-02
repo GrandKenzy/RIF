@@ -7,6 +7,7 @@ from typing import Any
 
 from Frontend import globals
 from Frontend.session import CompilationSession
+from Frontend.syntax.keywords import validate_user_name
 
 from .config import visit as visit_config
 from .linker import visit as visit_linker
@@ -74,6 +75,7 @@ def visit(
     block_name = str(getattr(node, "block_name", "")).lower()
     if not block_name:
         raise RuntimeError("Un bloque genérico requiere un nombre.")
+    validate_user_name(block_name, "@block")
     entries = _entries(node)
     block = globals.BlockData(block_name, entries, source_path)
     session.blocks.setdefault(block_name, []).append(block)

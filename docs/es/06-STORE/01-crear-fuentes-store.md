@@ -50,6 +50,28 @@ como el formato soportado por el conversor seleccionado. La extensión del
 archivo debe coincidir con el formato declarado. En `BINARY`, `raw` significa
 bytes opacos, no un parser ni un ensamblador.
 
+## Bloques binarios inline
+
+`VERSION 2` puede contener un payload binario raw directamente en la fuente.
+Usa `@BINARY`, un label identificador, una o más líneas de bytes hexadecimales
+de dos dígitos y `@END`:
+
+```text
+MAGIC "store"
+VERSION 2
+
+@BINARY MODE_3
+01 03 A0 E3,
+03 10 A0 E3 01 1B 81 E3
+B0 10 C0 E1
+@END
+```
+
+Los espacios separan bytes y las comas son opcionales. También se acepta el
+prefijo `0x`. El bloque se guarda como un único payload opaco y no ejecuta
+plugins. `@BINARY` está limitado a la versión 2; para la versión 1 usa
+`@FILE` o `@ITEM BINARY`.
+
 ## Valores tipados de bytes exactos
 
 Los valores tipados requieren `VERSION 2`:

@@ -126,7 +126,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mark_defines_native_symbol_without_consuming_identifier(self) -> None:
         source = (
-            "@rule mark:\n"
+            "@rule mark_symbol:\n"
             ". IDENT\n"
             ". eword 1\n"
             ". mark\n"
@@ -135,7 +135,7 @@ class RuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             program = self.compile(source, Path(directory) / "main.rif")
             machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
-            result = machine.execute("mark", self.tokenize("mark label"))
+            result = machine.execute("mark_symbol", self.tokenize("mark_symbol label"))
 
         self.assertEqual(result.position, 2)
         symbol = machine.symbols["label"]
@@ -145,14 +145,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(symbol.virtual_offset, 1)
 
     def test_mark_rejects_duplicate_symbols_across_external_lines(self) -> None:
-        source = "@rule mark:\n. IDENT\n. mark\n. IDENT\n"
+        source = "@rule mark_symbol:\n. IDENT\n. mark\n. IDENT\n"
         with tempfile.TemporaryDirectory() as directory:
             program = self.compile(source, Path(directory) / "main.rif")
             machine = RIFMachine(program, emitter=BitEmitter(wordsize=8))
-            machine.execute_line("mark", self.tokenize("mark label"))
+            machine.execute_line("mark_symbol", self.tokenize("mark_symbol label"))
 
             with self.assertRaisesRegex(RIFRuntimeError, "ya está definido"):
-                machine.execute_line("mark", self.tokenize("mark label"))
+                machine.execute_line("mark_symbol", self.tokenize("mark_symbol label"))
 
     def test_emitfr_keeps_rows_and_jmpif_can_use_boolean(self) -> None:
         source = (
@@ -428,7 +428,7 @@ class RuntimeTests(unittest.TestCase):
         source = (
             "@rule push:\n"
             ". dpush 8\n"
-            "@rule fit:\n"
+            "@rule fit_rule:\n"
             ". fit dget\n"
             "@rule exact:\n"
             ". fit_exact dget\n"
@@ -441,11 +441,11 @@ class RuntimeTests(unittest.TestCase):
                 machine.execute_line("exact", self.tokenize("256"))
             self.assertEqual(machine.datastack, [8])
             self.assertEqual(machine.position, 0)
-            result = machine.execute_line("fit", self.tokenize("258"))
+            result = machine.execute_line("fit_rule", self.tokenize("258"))
             self.assertEqual(result.buffer, b"\x02")
             self.assertEqual(machine.datastack, [])
             with self.assertRaises(RIFRuntimeError):
-                machine.execute_line("fit", self.tokenize("1"))
+                machine.execute_line("fit_rule", self.tokenize("1"))
 
     def test_bit_ranges_and_reservation_widths_control_output(self) -> None:
         source = (

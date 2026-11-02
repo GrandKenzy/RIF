@@ -71,6 +71,12 @@ interpretarlos sin añadir una nueva regla al parser.
 Una definición es una palabra registrada; no reserva slots, no emite bits y no
 crea un valor runtime.
 
+Los opcodes, keywords, nombres de tokens y operaciones sintácticas de RIF son
+reservados. Rules, tablas, bloques genéricos, definiciones y variantes no
+pueden reutilizar esos nombres, sin importar mayúsculas o minúsculas. El
+vocabulario del target debe usar nombres como `move`, `load_mem` o
+`mark_symbol` sin ocultar la sintaxis de RIF.
+
 ## Rules
 
 ```rif

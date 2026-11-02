@@ -525,9 +525,14 @@ def _compile_raw(
                 Operand("string", token.value, _source_lexeme(token, source_path, source_texts)),
             )
         elif opcode == "jump":
-            if len(rest) != 1 or rest[0].token.name != "IDENT":
-                raise RuntimeError("JUMP requiere exactamente una Rule IDENT.")
-            operands = (Operand("rule", rest[0].value),)
+            if len(rest) != 1:
+                raise RuntimeError("JUMP requiere una Rule IDENT o DGET.")
+            if rest[0].value == "dget":
+                operands = (Operand("data_pop", None),)
+            elif rest[0].token.name == "IDENT":
+                operands = (Operand("rule", rest[0].value),)
+            else:
+                raise RuntimeError("JUMP requiere una Rule IDENT o DGET.")
         elif opcode == "jumpif":
             if len(rest) < 3 or rest[0].token.name != "IDENT" or rest[1].token.name != "COMMA":
                 raise RuntimeError("JUMPIF requiere 'Rule, BOOL|#call[nombre]'.")
@@ -548,9 +553,9 @@ def _compile_raw(
             operands = (
                 Operand("string", rest[0].value, _source_lexeme(rest[0], source_path, source_texts)),
             )
-        elif opcode == "dpop":
+        elif opcode in {"dpop", "arm_imm8", "arm_imm_rotate"}:
             if rest:
-                raise RuntimeError("DPOP no acepta operandos.")
+                raise RuntimeError(f"{opcode.upper()} no acepta operandos.")
             operands = _raw_values(rest, source_path, source_texts)
         elif opcode == "break":
             if rest:

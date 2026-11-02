@@ -23,6 +23,7 @@ AUDIO_INPUTS = frozenset({"wav", "flac", "ogg"})
 BINARY_INPUTS = frozenset({"bin", "dat", "raw"})
 LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ITEM_PATTERN = re.compile(r"^@ITEM\s+([A-Za-z_][A-Za-z0-9_]*)$", re.IGNORECASE)
+BINARY_PATTERN = re.compile(r"^@BINARY\s+([A-Za-z_][A-Za-z0-9_]*)$", re.IGNORECASE)
 TYPE_PATTERN = re.compile(
     r"^(?P<type>[A-Za-z][A-Za-z0-9_]*)\s+"
     r"(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.+)$"
@@ -203,10 +204,28 @@ def _parse_container_directive(line: str, line_number: int) -> str:
     return _quoted(body[:-1].rstrip(), line_number, "@CONTAINER")
 
 
+def _parse_inline_binary(line: str, line_number: int) -> bytes:
+    """Parse one line of two-digit hexadecimal byte values."""
+
+    fields = line.replace(",", " ").split()
+    if not fields:
+        raise StoreError(f"@BINARY requiere al menos un byte, línea {line_number}.")
+    values: list[int] = []
+    for field in fields:
+        token = field[2:] if field.lower().startswith("0x") else field
+        if not re.fullmatch(r"[0-9A-Fa-f]{2}", token):
+            raise StoreError(
+                f"@BINARY solo acepta bytes hexadecimales de dos dígitos, línea {line_number}: {field}."
+            )
+        values.append(int(token, 16))
+    return bytes(values)
+
+
 def _is_top_level_start(line: str) -> bool:
     return bool(
         line.upper().startswith(("MAGIC ", "VERSION "))
         or ITEM_PATTERN.fullmatch(line)
+        or BINARY_PATTERN.fullmatch(line)
         or FILE_PATTERN.fullmatch(line)
         or REQST_PATTERN.fullmatch(line)
         or CONTAINER_PATTERN.fullmatch(line)
@@ -231,6 +250,9 @@ def parse_store(source: str | Path) -> StoreDefinition:
     container_source: str | None = None
     container_line = 0
     container_items = 0
+    inline_binary_label: str | None = None
+    inline_binary_line = 0
+    inline_binary_data = bytearray()
 
     for line_number, original in enumerate(lines, 1):
         line = _strip_comment(original).strip()
@@ -277,6 +299,31 @@ def parse_store(source: str | Path) -> StoreDefinition:
                     f"Se esperaba 'get etiqueta' dentro de @CONTAINER, línea {line_number}."
                 )
 
+        if inline_binary_label is not None:
+            if line.lower() == "@end":
+                if not inline_binary_data:
+                    raise StoreError(
+                        f"@BINARY en línea {inline_binary_line} requiere al menos un byte."
+                    )
+                _register_item(
+                    items,
+                    labels,
+                    StoreItem(
+                        "INLINE_BINARY",
+                        inline_binary_data.hex(),
+                        "hex",
+                        "RAW",
+                        inline_binary_label,
+                        inline_binary_line,
+                    ),
+                )
+                inline_binary_label = None
+                inline_binary_line = 0
+                inline_binary_data.clear()
+                continue
+            inline_binary_data.extend(_parse_inline_binary(line, line_number))
+            continue
+
         if current_kind is None:
             if line.upper().startswith("MAGIC "):
                 if magic is not None:
@@ -299,6 +346,12 @@ def parse_store(source: str | Path) -> StoreDefinition:
                     raise StoreError(f"Tipo de @ITEM no soportado: {current_kind}.")
                 current_fields = []
                 current_line = line_number
+                continue
+            binary_match = BINARY_PATTERN.fullmatch(line)
+            if binary_match:
+                inline_binary_label = binary_match.group(1)
+                inline_binary_line = line_number
+                inline_binary_data.clear()
                 continue
             file_match = FILE_PATTERN.fullmatch(line)
             if file_match:
@@ -375,14 +428,20 @@ def parse_store(source: str | Path) -> StoreDefinition:
 
     if current_kind is not None:
         raise StoreError(f"@ITEM {current_kind} en línea {current_line} no tiene @end.")
+    if inline_binary_label is not None:
+        raise StoreError(
+            f"@BINARY {inline_binary_label} en línea {inline_binary_line} no tiene @end."
+        )
     if container_source is not None and container_items == 0:
         raise StoreError(f"@CONTAINER en línea {container_line} requiere al menos un get.")
     if magic != "store":
         raise StoreError('MAGIC debe ser exactamente "store".')
     if version not in SUPPORTED_VERSIONS:
         raise StoreError("VERSION de .store debe ser 1 o 2.")
-    if version == 1 and any(item.kind in {"VALUE", "REQST"} for item in items):
-        raise StoreError("Los valores tipados y @REQST requieren VERSION 2.")
+    if version == 1 and any(
+        item.kind in {"VALUE", "REQST", "INLINE_BINARY"} for item in items
+    ):
+        raise StoreError("Los valores tipados, @REQST y @BINARY requieren VERSION 2.")
     return StoreDefinition(path, magic, version, tuple(items))
 
 
@@ -470,6 +529,8 @@ def compile_store(source: str | Path) -> StoreCompilation:
         try:
             if item.kind == "VALUE":
                 payload = _encode_value(item)
+            elif item.kind == "INLINE_BINARY":
+                payload = bytes.fromhex(item.source)
             elif item.kind == "REQST":
                 payload = reqsts(item.source)
             elif item.kind == "CONTAINER":

@@ -28,6 +28,10 @@ token candidato que coincida.
 condición es verdadera. `BREAK` termina el flujo actual. Las referencias
 `#call[...]` solo podrán resolver funciones nativas registradas.
 
+`JUMP dget` permite un despacho dinámico: extrae del datastack el nombre de una
+Rule y la ejecuta. El nombre debe provenir de una tabla o de otro valor validado
+por el target.
+
 El almacenamiento de tokens es distinto del datastack:
 
 ```rif
@@ -92,7 +96,7 @@ y emitirlos.
 actual. No consume ese token; una Rule puede conservar el contrato habitual:
 
 ```rif
-@rule mark:
+@rule mark_symbol:
 . IDENT
 . mark
 . IDENT
@@ -121,9 +125,11 @@ virtuales absolutas. Un target puede añadir clases sin hardcodear una ISA:
 @end
 ```
 
-Después se usan igual: `. fixup rel24 "slot"`. Las clases se validan y aplican
-juntas después del MIR, permitiendo símbolos definidos más adelante sin dejar
-parches parciales.
+Después se usan igual: `. fixup rel24 "slot"`. También existe el modo
+`arm_pc24`, que calcula el desplazamiento ARM desde `PC+8` y lo escala a
+palabras de 32 bits; sirve para `B` y `BL` del ARM7TDMI. Las clases se validan
+y aplican juntas después del MIR, permitiendo símbolos definidos más adelante
+sin dejar parches parciales.
 
 La directiva MIR `::RIF_SECTION text` cambia el emisor activo de un MIR
 sectionado. Solo está disponible cuando la ejecución tiene una

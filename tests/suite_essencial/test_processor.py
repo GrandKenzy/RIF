@@ -212,6 +212,23 @@ class StackProcessorTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             process(ast)
 
+    def test_rif_reserved_names_cannot_shadow_declarations(self) -> None:
+        declarations = (
+            "@rule mark:\n. IDENT\n",
+            "@rule jump:\n. IDENT\n",
+            "@table load\n| value |\n__\n| 1 |\n@end\n",
+            "@block mark:\n    value 1\n@end\n",
+            "@define frame\n",
+        )
+        for source in declarations:
+            with self.subTest(source=source), self.assertRaisesRegex(
+                RuntimeError, "está reservado por RIF"
+            ):
+                process(self.parse(source))
+
+        process(self.parse("@rule move:\n. IDENT\n"))
+        process(self.parse("@rule store:\n. IDENT\n"))
+
     def test_rule_is_registered_with_its_instruction_ast(self) -> None:
         process(
             self.parse(

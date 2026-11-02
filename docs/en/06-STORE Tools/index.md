@@ -55,7 +55,7 @@ assets.ENDIANNESS 1
 | Storage version | Available features |
 | :---: | :--- |
 | `1` | Local media, opaque `BINARY`, `@FILE`, and container selection of raw entries. No typed declarations and no `@REQST`. |
-| `2` | Everything in version 1 plus typed literals and bounded `@REQST`. Type metadata is retained in the index. |
+| `2` | Everything in version 1 plus typed literals, bounded `@REQST`, and inline `@BINARY` blocks. Type metadata is retained in the index. |
 
 RIF currently accepts only storage versions `1` and `2`. Version `3` is not a
 current format; future functions or macros must not be assumed by current

@@ -165,7 +165,7 @@ class AOTFrontendTests(unittest.TestCase):
             "@end\n"
             "@rule mov:\n"
             ". $registers.name, IDENT\n"
-            "@rule mark:\n"
+            "@rule mark_symbol:\n"
             ". IDENT\n"
             ". mark\n"
             ". IDENT\n"

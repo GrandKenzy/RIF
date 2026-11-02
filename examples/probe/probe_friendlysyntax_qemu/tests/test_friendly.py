@@ -126,8 +126,8 @@ def check(rif_root: Path) -> None:
     invalid = (
         "set R0 = 2147483648\n",
         "increase R0, 2147483648\n",
-        "load R0, R4, 2147483648\n",
-        "store R0, R4, -2147483649\n",
+        "load_mem R0, R4, 2147483648\n",
+        "store_mem R0, R4, -2147483649\n",
     )
     for program in invalid:
         try:

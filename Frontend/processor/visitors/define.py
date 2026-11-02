@@ -4,6 +4,7 @@ from typing import Any
 
 from Frontend import globals
 from Frontend.session import CompilationSession
+from Frontend.syntax.keywords import validate_user_name
 
 
 def _define_name(node: Any) -> str:
@@ -25,6 +26,7 @@ def _define_name(node: Any) -> str:
 def visit(node: Any, session: CompilationSession) -> None:
     """Registra una etiqueta de palabra declarada con @define."""
     name = _define_name(node)
+    validate_user_name(name, "@define")
     if name in session.defines:
         raise RuntimeError(f"El nombre '{name}' ya fue declarado con @define.")
 

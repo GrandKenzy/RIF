@@ -165,7 +165,7 @@ __
 
     def test_virtual_label_query_uses_virtual_rule_address(self) -> None:
         source = CONFIG.format(wordsize=8) + '''\
-@rule pad:
+@rule pad_rule:
 . IDENT
 . vpad 8
 @rule target:
@@ -179,7 +179,7 @@ __
                 '::RIF_INSERT BYTES "00000000000000000000"\n'
                 '::RIF_PATCH 0, 1, #:qlsize(0, "target")\n'
                 '::RIF_PATCH 1, 1, #:qvsize(0, "target")\n'
-                "pad\ntarget\n",
+                "pad_rule\ntarget\n",
             )
             self.assertEqual(result.binary[:2], b"\x0a\x0b")
 

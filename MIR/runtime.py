@@ -20,6 +20,35 @@ MAX_RULE_CALL_DEPTH = 256
 MAX_DYNAMIC_WIDTH_BYTES = 256 << 20
 
 
+def _ror32(value: int, shift: int) -> int:
+    shift %= 32
+    value &= 0xFFFFFFFF
+    if not shift:
+        return value
+    return ((value >> shift) | (value << (32 - shift))) & 0xFFFFFFFF
+
+
+def _rol32(value: int, shift: int) -> int:
+    return _ror32(value, -shift)
+
+
+def _arm_modified_immediate(value: int) -> tuple[int, int]:
+    """Return ARM data-processing immediate fields (imm8, rotate_imm)."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 0xFFFFFFFF:
+        raise RIFRuntimeError(
+            "El inmediato ARM debe ser un entero entre 0x00000000 y 0xFFFFFFFF."
+        )
+    for rotate in range(16):
+        shift = rotate * 2
+        imm8 = _rol32(value, shift)
+        if imm8 <= 0xFF and _ror32(imm8, shift) == value:
+            return imm8, rotate
+    raise RIFRuntimeError(
+        f"El inmediato ARM 0x{value:08X} no es representable como inmediato modificado."
+    )
+
+
 class RIFRuntimeError(RuntimeError):
     """An execution failure associated with a MIR instruction."""
 
@@ -570,6 +599,19 @@ class RIFMachine:
             "FIT_SIGNED requiere tokens NUMBER, DECIMAL o un número con signo negativo."
         )
 
+    def _arm_immediate(self) -> tuple[int, int]:
+        """Inspect the current numeric token without consuming it."""
+
+        token = self._current()
+        if token.token not in {lexer.Token.NUMBER, lexer.Token.DECIMAL}:
+            raise RIFRuntimeError(
+                "El inmediato ARM requiere que el token actual sea NUMBER o DECIMAL."
+            )
+        value = token.value
+        if token.token == lexer.Token.DECIMAL and isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return _arm_modified_immediate(value)
+
     @staticmethod
     def _signed_immediate_fits(value: int, width: int) -> bool:
         if width <= 0 or width > resolve_limits().cap(MAX_DYNAMIC_WIDTH_BYTES) * 8:
@@ -949,6 +991,14 @@ class RIFMachine:
             )
             return
 
+        if opcode in {"arm_imm8", "arm_imm_rotate"}:
+            imm8, rotate = self._arm_immediate()
+            if opcode == "arm_imm8":
+                self.emitter.bits(imm8, 8)
+            else:
+                self.emitter.bits(rotate, 4)
+            return
+
         if opcode == "emit":
             self.emitter.emit(
                 *(self._bit_field(operand, instruction) for operand in operands)
@@ -1059,6 +1109,14 @@ class RIFMachine:
             return
 
         if opcode == "jump":
+            if operands[0].kind == "data_pop":
+                target = self._value(operands[0], instruction)
+                if not isinstance(target, str) or target not in self.program.rules:
+                    raise RIFRuntimeError(
+                        f"JUMP DGET recibió una Rule inexistente: {target!r}."
+                    )
+                self._execute_rule(target)
+                return
             reference = operands[0].resolved
             if not isinstance(reference, RuleRef):
                 raise RIFRuntimeError("JUMP no fue resuelto semánticamente.")

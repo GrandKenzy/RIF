@@ -4,6 +4,7 @@ from typing import Any
 
 from Frontend import globals
 from Frontend.session import CompilationSession
+from Frontend.syntax.keywords import validate_user_name
 
 
 def _children(node: Any) -> tuple[Any, ...]:
@@ -52,6 +53,7 @@ def _string(node: Any, directive: str) -> str:
 
 def visit_support(node: Any, session: CompilationSession) -> None:
     name = _identifier(node)
+    validate_user_name(name, "@SUPPORTS")
     if name in session.supports:
         raise RuntimeError(f"La variante '{name}' ya fue declarada con @SUPPORTS.")
     session.supports[name] = globals.SupportData(name=name, path=f"{name}.rif")
@@ -63,6 +65,7 @@ def visit_variant(node: Any, session: CompilationSession) -> None:
         raise RuntimeError("@ASMVARIANT debe contener directivas de variante.")
 
     name = _identifier(children[2])
+    validate_user_name(name, "@ASMVARIANT")
     if name not in session.supports:
         raise RuntimeError(
             f"La variante '{name}' debe declararse antes con @SUPPORTS."

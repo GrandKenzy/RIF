@@ -4,8 +4,8 @@
 ; mark and all supported fixup families are native; section selection belongs
 ; to the MIR preprocessor via ::RIF_SECTION, not to this .rif file.
 
-; mark NAME: defines a symbol at the current virtual byte address.
-@rule mark:
+; mark_symbol NAME: defines a symbol at the current virtual byte address.
+@rule mark_symbol:
 . IDENT
 . mark
 . IDENT
