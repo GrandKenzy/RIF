@@ -22,14 +22,16 @@ from .output import AssemblyImage
 from .output_map import build_output_map
 from .artifacts import (
     ArtifactError,
+    ChecksumData,
     InsertData,
     PatchData,
+    apply_checksum_directives,
     apply_insert_directives,
     apply_patch_directives,
     parse_patch_tokens,
 )
 from .pipeline import compile_definition
-from .preprocessor import MIRLine, RIFMetaDirective, preprocess_mir_lines
+from .preprocessor import MIRLine, RIFMetaDirective, _directive, preprocess_mir_lines
 from .runtime import ExecutionResult, RIFMachine, RIFRuntimeError
 from .relocations import relocation_specs
 from .storage import StorageError, load_storage_file
@@ -37,6 +39,7 @@ from .storage import StorageError, load_storage_file
 
 MAX_MIR_SOURCE_BYTES = 64 << 20
 MAX_MIR_TOKENS = 4_000_000
+MAX_MIR_INCLUDE_DEPTH = 64
 
 
 class MIRInputError(ValueError):
@@ -352,6 +355,73 @@ def _resolve_meta_path(requested: str, mir_path: str | Path | None) -> Path:
             f"La ruta de metaprogramación intenta salir del directorio del MIR: {requested!r}."
         ) from exc
     return candidate
+
+
+def _expand_mir_includes(
+    lines: Iterable[tuple[lexer.TokenType, ...]],
+    *,
+    mir_path: str | Path | None,
+    expected_extension: str,
+    case_sensitive: bool,
+    stack: tuple[Path, ...] = (),
+) -> tuple[tuple[lexer.TokenType, ...], ...]:
+    """Splice safe linker-compatible sources at each include directive."""
+
+    current_path = (
+        Path(mir_path).expanduser().resolve(strict=False)
+        if mir_path is not None
+        else None
+    )
+    result: list[tuple[lexer.TokenType, ...]] = []
+    for line in lines:
+        directive = _directive(line)
+        if directive is None or directive.name != "RIF_INCLUDE":
+            result.append(line)
+            continue
+        if directive.path is None:
+            raise MIRInputError("::RIF_INCLUDE requiere una ruta.")
+        include_suffix = Path(directive.path).suffix
+        expected_suffix = expected_extension
+        if not expected_suffix.startswith("."):
+            expected_suffix = "." + expected_suffix
+        matches = (
+            include_suffix == expected_suffix
+            if case_sensitive
+            else include_suffix.casefold() == expected_suffix.casefold()
+        )
+        if not matches:
+            raise MIRInputError(
+                "::RIF_INCLUDE requiere la extensión declarada por el linker: "
+                f"'{expected_suffix}', no '{include_suffix}'."
+            )
+        include_path = _resolve_meta_path(directive.path, current_path)
+        if not include_path.is_file():
+            location = f" en la línea {directive.line}" if directive.line else ""
+            raise MIRInputError(
+                f"No existe el archivo de ::RIF_INCLUDE{location}: {include_path}"
+            )
+        if include_path in stack or include_path == current_path:
+            chain = " -> ".join(str(item) for item in (*stack, include_path))
+            raise MIRInputError(f"Ciclo de ::RIF_INCLUDE detectado: {chain}")
+        if len(stack) >= MAX_MIR_INCLUDE_DEPTH:
+            raise MIRInputError(
+                f"::RIF_INCLUDE excede la profundidad máxima de {MAX_MIR_INCLUDE_DEPTH}."
+            )
+        try:
+            source = include_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise MIRInputError(
+                f"No se pudo leer el archivo de ::RIF_INCLUDE: {include_path}"
+            ) from exc
+        included = _expand_mir_includes(
+            _split_lines(tokenize_mir(source, str(include_path))),
+            mir_path=include_path,
+            expected_extension=expected_extension,
+            case_sensitive=case_sensitive,
+            stack=(*stack, include_path),
+        )
+        result.extend(included)
+    return tuple(result)
 
 
 _VALUE_WIDTHS = {
@@ -691,7 +761,32 @@ def _compile_mir_tokens(
             )
         collected.append(token)
     token_stream = tuple(collected)
-    lines: tuple[MIRLine, ...] = preprocess_mir_lines(_split_lines(token_stream))
+    raw_lines = _split_lines(token_stream)
+    has_include = any(
+        (directive := _directive(line)) is not None
+        and directive.name == "RIF_INCLUDE"
+        for line in raw_lines
+    )
+    if has_include:
+        linker = program.context.linker
+        if linker is None or not linker.extension:
+            raise MIRInputError(
+                "::RIF_INCLUDE requiere un bloque @block linker con extension."
+            )
+        raw_lines = _expand_mir_includes(
+            raw_lines,
+            mir_path=mir_path,
+            expected_extension=linker.extension,
+            case_sensitive=config.casesensitive,
+            stack=(
+                (Path(mir_path).expanduser().resolve(strict=False),)
+                if mir_path is not None
+                else ()
+            ),
+        )
+    if sum(len(line) for line in raw_lines) > resolve_limits().cap(MAX_MIR_TOKENS):
+        raise MIRInputError(f"El MIR excede el límite de {MAX_MIR_TOKENS} tokens.")
+    lines: tuple[MIRLine, ...] = preprocess_mir_lines(raw_lines)
     pcpi: object | None = None
     pcpi_set_section: str | None = None
     pcpi_set_offset = 0
@@ -705,6 +800,7 @@ def _compile_mir_tokens(
     )
     storage_layouts: dict[str, tuple[int, int]] = {}
     dynamic_patches: list[PatchData] = []
+    checksums: list[ChecksumData] = []
 
     def materialize_pcpi() -> None:
         nonlocal pcpi_materialized
@@ -795,6 +891,25 @@ def _compile_mir_tokens(
                 location = f" en línea {directive.line}" if directive.line else ""
                 raise MIRInputError(f"No se pudo leer ::RIF_PATCH{location}: {exc}") from exc
             return
+        if directive.name == "RIF_CHECKSUM":
+            if directive.checksum_scope is None or directive.checksum_offset is None:
+                raise MIRInputError("::RIF_CHECKSUM requiere un ámbito y un offset.")
+            if directive.operation not in {"CRC16", "CRC32", "SUM8", "GBA_HEADER"}:
+                raise MIRInputError(
+                    "::RIF_CHECKSUM acepta CRC16, CRC32, SUM8 o GBA_HEADER."
+                )
+            checksums.append(
+                ChecksumData(
+                    algorithm=directive.operation,
+                    scope=directive.checksum_scope,
+                    offset=directive.checksum_offset,
+                    range_start=directive.checksum_start,
+                    range_end=directive.checksum_end,
+                    section=directive.section,
+                    source_path=str(mir_path) if mir_path else None,
+                )
+            )
+            return
         if directive.name in {"RIF_BUFFER", "RIF_REQSTS"}:
             return
         if directive.name != "RIF_PCPI":
@@ -882,6 +997,7 @@ def _compile_mir_tokens(
                 pcpi_set_offset,
                 tuple(pcpi_fills),
             )
+        apply_checksum_directives(image, tuple(checksums))
 
     pit_addresses: list[PCPIPitAddress] = []
     if pcpi_queries:

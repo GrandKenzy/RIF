@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import binascii
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -39,6 +41,19 @@ class PatchData:
     offset: int
     width: int | None
     expression: Any
+    source_path: str | None = None
+
+
+@dataclass(frozen=True)
+class ChecksumData:
+    """One final checksum written into the rendered image."""
+
+    algorithm: str
+    scope: str
+    offset: int
+    range_start: int | None = None
+    range_end: int | None = None
+    section: str | None = None
     source_path: str | None = None
 
 
@@ -447,14 +462,124 @@ def apply_patch_directives(
     return bytes(working)
 
 
+def _checksum_width(algorithm: str) -> int:
+    if algorithm == "GBA_HEADER":
+        return 1
+    if algorithm == "CRC16":
+        return 2
+    if algorithm == "SUM8":
+        return 1
+    if algorithm == "CRC32":
+        return 4
+    raise ArtifactError(f"Algoritmo de checksum desconocido: {algorithm}.")
+
+
+def _checksum_value(algorithm: str, payload: bytes) -> int:
+    if algorithm == "GBA_HEADER":
+        return (-(0x19 + sum(payload))) & 0xFF
+    if algorithm == "SUM8":
+        return sum(payload) & 0xFF
+    if algorithm == "CRC16":
+        # CRC-16/CCITT-FALSE: polynomial 0x1021, initial value 0xFFFF.
+        return binascii.crc_hqx(payload, 0xFFFF)
+    if algorithm == "CRC32":
+        return zlib.crc32(payload) & 0xFFFFFFFF
+    raise ArtifactError(f"Algoritmo de checksum desconocido: {algorithm}.")
+
+
+def apply_checksum_directives(
+    image: AssemblyImage,
+    checksums: tuple[ChecksumData, ...],
+) -> bytes:
+    """Compute checksums over final bytes and write them transactionally.
+
+    Every checksum field is zeroed in the common source image before any
+    checksum is calculated. This makes multiple checksum directives
+    deterministic and prevents one checksum from depending on another.
+    """
+
+    if not checksums:
+        return image.file_bytes()
+    base = bytearray(image.layout())
+    placements: list[tuple[ChecksumData, int, int]] = []
+    for checksum in checksums:
+        width = _checksum_width(checksum.algorithm)
+        if checksum.offset < 0:
+            raise ArtifactError("El offset de ::RIF_CHECKSUM no puede ser negativo.")
+        if checksum.scope == "IMAGE":
+            start = checksum.offset
+            scope_start = 0
+            scope_end = len(base)
+        elif checksum.scope == "SECTION":
+            if checksum.section is None or checksum.section not in image.sections:
+                raise ArtifactError(
+                    f"No existe la sección de ::RIF_CHECKSUM: {checksum.section!r}."
+                )
+            section = image.sections[checksum.section]
+            start = section.file_offset + checksum.offset
+            scope_start = section.file_offset
+            scope_end = section.file_end
+        else:
+            raise ArtifactError(
+                f"Ámbito de ::RIF_CHECKSUM desconocido: {checksum.scope!r}."
+            )
+        end = start + width
+        if start < 0 or end > len(base):
+            raise ArtifactError("::RIF_CHECKSUM escribe fuera de la imagen final.")
+        if checksum.scope == "SECTION" and (start < scope_start or end > scope_end):
+            raise ArtifactError("::RIF_CHECKSUM escribe fuera de su sección.")
+        source_start = scope_start
+        source_end = scope_end
+        if checksum.range_start is not None:
+            if checksum.range_end is None:
+                raise ArtifactError("::RIF_CHECKSUM requiere el final del rango.")
+            if (
+                checksum.range_start < 0
+                or checksum.range_end < checksum.range_start
+                or scope_start + checksum.range_end > scope_end
+            ):
+                raise ArtifactError(
+                    "El RANGE de ::RIF_CHECKSUM está fuera de su ámbito."
+                )
+            source_start = scope_start + checksum.range_start
+            source_end = scope_start + checksum.range_end
+        placements.append((checksum, start, end))
+
+    for _, start, end in placements:
+        base[start:end] = b"\x00" * (end - start)
+
+    working = bytearray(base)
+    for checksum, start, end in placements:
+        if checksum.scope == "IMAGE":
+            scope_start = 0
+            scope_end = len(base)
+        else:
+            assert checksum.section is not None
+            section = image.sections[checksum.section]
+            scope_start = section.file_offset
+            scope_end = section.file_end
+        if checksum.range_start is not None:
+            assert checksum.range_end is not None
+            scope_start += checksum.range_start
+            scope_end = scope_start + (checksum.range_end - checksum.range_start)
+        payload = bytes(base[scope_start:scope_end])
+        value = _checksum_value(checksum.algorithm, payload)
+        width = end - start
+        working[start:end] = value.to_bytes(width, image.config.endianness)
+    image.set_final_bytes(bytes(working))
+    return bytes(working)
+
+
 __all__ = [
     "ArtifactError",
     "BinaryValue",
+    "ChecksumData",
     "InsertData",
     "PatchData",
     "ScalarValue",
     "apply_insert_directives",
     "apply_patch_directives",
+    "apply_checksum_directives",
     "evaluate_expression",
     "parse_patch_tokens",
 ]

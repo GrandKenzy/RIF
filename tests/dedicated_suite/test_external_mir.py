@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 
 from Frontend import globals as rif_globals
@@ -94,6 +95,69 @@ class ExternalMIRTests(unittest.TestCase):
             self.assertEqual(direct.binary, b"\x01\x01")
             self.assertEqual(token_direct.binary, direct.binary)
             self.assertEqual(len(direct.executions), 2)
+
+    def test_rif_include_splices_nested_gbaa_sources_relative_to_each_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            main = root / "program.gbaa"
+            parts = root / "parts"
+            nested = parts / "nested"
+            parts.mkdir()
+            nested.mkdir()
+            target.write_text(
+                TARGET.replace('extension ".asm"', 'extension ".gbaa"'),
+                encoding="utf-8",
+            )
+            (nested / "tail.gbaa").write_text("mov\n", encoding="utf-8")
+            (parts / "init.gbaa").write_text(
+                '::RIF_INCLUDE "nested/tail.gbaa"\nmov\n',
+                encoding="utf-8",
+            )
+            main.write_text(
+                '::RIF_INCLUDE "parts/init.gbaa"\nmov\n',
+                encoding="utf-8",
+            )
+
+            result = compile_mir_file(target, main)
+
+        self.assertEqual(result.binary, b"\x01\x01\x01")
+
+    def test_rif_checksum_writes_crc32_after_final_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            source = root / "program.asm"
+            target.write_text(TARGET, encoding="utf-8")
+            source.write_text(
+                '::RIF_INSERT BYTES "00000000"\n'
+                "mov\n"
+                "::RIF_CHECKSUM CRC32 IMAGE WRITE 0\n",
+                encoding="utf-8",
+            )
+
+            result = compile_mir_file(target, source)
+
+        expected = zlib.crc32(b"\x00\x00\x00\x00\x01").to_bytes(4, "little")
+        self.assertEqual(result.binary, expected + b"\x01")
+
+    def test_rif_checksum_supports_gba_header_complement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "main.rif"
+            source = root / "program.asm"
+            header_bytes = "00" * 0xBE
+            target.write_text(TARGET, encoding="utf-8")
+            source.write_text(
+                f'::RIF_INSERT BYTES "{header_bytes}"\n'
+                "::RIF_CHECKSUM GBA_HEADER IMAGE WRITE 0xBD\n",
+                encoding="utf-8",
+            )
+
+            result = compile_mir_file(target, source)
+
+        self.assertEqual(len(result.binary), 0xBE)
+        self.assertEqual(result.binary[0xBD], 0xE7)
 
     def test_native_mark_exposes_absolute_virtual_symbol_address(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

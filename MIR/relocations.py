@@ -1,45 +1,163 @@
-"""Target-extensible relocation specifications."""
+"""Target-declared, ISA-neutral relocation recipes."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from Frontend import globals
 from .operations import OperationError, execute_operation
 
 
+def _integer(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} debe ser un entero.")
+    return value
+
+
+def _positive(value: Any, name: str) -> int:
+    value = _integer(value, name)
+    if value <= 0:
+        raise ValueError(f"{name} debe ser positivo.")
+    return value
+
+
+def _mask(width: int) -> int:
+    return (1 << width) - 1
+
+
+@dataclass(frozen=True)
+class RelocationField:
+    """One source bit range placed into the output word."""
+
+    source_shift: int
+    width_bits: int
+    target_shift: int
+
+    def __post_init__(self) -> None:
+        source_shift = _integer(self.source_shift, "source_shift")
+        width_bits = _positive(self.width_bits, "width_bits")
+        target_shift = _integer(self.target_shift, "target_shift")
+        if source_shift < 0 or target_shift < 0:
+            raise ValueError("Los desplazamientos de un campo no pueden ser negativos.")
+        object.__setattr__(self, "source_shift", source_shift)
+        object.__setattr__(self, "width_bits", width_bits)
+        object.__setattr__(self, "target_shift", target_shift)
+
+
 @dataclass(frozen=True)
 class RelocationSpec:
-    """A target-neutral relocation calculation declared by name."""
+    """A declarative relocation recipe independent of any instruction set.
+
+    ``value`` received by :meth:`encode` is the target address minus the
+    recorded next-instruction address. ``pc_bias`` is subtracted from that
+    value before scaling. Fields can copy non-contiguous source bits into a
+    fixed output template.
+    """
 
     name: str
     width_bits: int
     mode: str
+    pc_bias: int = 0
+    scale: int = 1
+    alignment: int = 1
+    signed: bool | None = None
+    template: int = 0
+    fields: tuple[RelocationField, ...] = ()
+
+    def __post_init__(self) -> None:
+        name = str(self.name)
+        if not name:
+            raise ValueError("Una relocación requiere un nombre.")
+        width_bits = _positive(self.width_bits, "width_bits")
+        mode = str(self.mode).casefold()
+        if mode in {"relative", "pcrel"}:
+            mode = "pc"
+        elif mode == "absolute":
+            mode = "abs"
+        if mode not in {"pc", "abs"}:
+            raise ValueError(f"El modo de la relocación '{name}' no es válido.")
+        pc_bias = _integer(self.pc_bias, "pc_bias")
+        scale = _positive(self.scale, "scale")
+        alignment = _positive(self.alignment, "alignment")
+        template = _integer(self.template, "template")
+        if template < 0 or template >= 1 << width_bits:
+            raise ValueError(f"La plantilla de '{name}' no cabe en {width_bits} bits.")
+        signed = self.signed
+        if signed is not None and not isinstance(signed, bool):
+            raise ValueError("signed debe ser booleano o None.")
+        fields = tuple(self.fields)
+        if any(not isinstance(field, RelocationField) for field in fields):
+            raise ValueError("fields solo puede contener RelocationField.")
+        if not fields and template:
+            raise ValueError(
+                f"La plantilla de '{name}' requiere al menos un campo de salida."
+            )
+        for field in fields:
+            if field.target_shift + field.width_bits > width_bits:
+                raise ValueError(
+                    f"El campo de '{name}' excede la salida de {width_bits} bits."
+                )
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "width_bits", width_bits)
+        object.__setattr__(self, "mode", mode)
+        object.__setattr__(self, "pc_bias", pc_bias)
+        object.__setattr__(self, "scale", scale)
+        object.__setattr__(self, "alignment", alignment)
+        object.__setattr__(self, "signed", signed if signed is not None else mode == "pc")
+        object.__setattr__(self, "template", template)
+        object.__setattr__(self, "fields", fields)
 
     @property
     def relative(self) -> bool:
-        return self.mode in {"pc", "arm_pc24"}
+        return self.mode == "pc"
 
     def encode(self, value: int) -> int:
-        if self.mode == "arm_pc24":
-            # ARM B/BL use the architectural PC (instruction address + 8),
-            # while RIF records the address of the next emitted instruction.
-            value -= 4
-            if value % 4:
-                raise ValueError(
-                    f"{self.name}: el destino ARM no está alineado a una palabra."
-                )
-            value //= 4
-            mode = "pc"
-        else:
-            mode = "pc" if self.relative else "abs"
-        try:
-            return execute_operation(
-                "encode_relocation", value, self.width_bits, mode
+        value = _integer(value, "value")
+        adjusted = value - self.pc_bias if self.relative else value
+        if adjusted % self.alignment:
+            raise ValueError(
+                f"{self.name}: el desplazamiento no respeta la alineación "
+                f"de {self.alignment} bytes."
             )
-        except OperationError as exc:
-            raise ValueError(f"{self.name}: {exc}") from exc
+        if adjusted % self.scale:
+            raise ValueError(
+                f"{self.name}: el desplazamiento no puede escalarse por {self.scale}."
+            )
+        scaled = adjusted // self.scale
+        source_width = (
+            max((field.source_shift + field.width_bits for field in self.fields), default=0)
+            or self.width_bits
+        )
+        if self.signed:
+            limit = 1 << (source_width - 1)
+            if not -limit <= scaled < limit:
+                raise ValueError(
+                    f"{self.name}: el valor signed no cabe en {source_width} bits."
+                )
+        elif not 0 <= scaled < 1 << source_width:
+            raise ValueError(
+                f"{self.name}: el valor unsigned no cabe en {source_width} bits."
+            )
+
+        if not self.fields:
+            try:
+                return execute_operation(
+                    "encode_relocation",
+                    scaled,
+                    self.width_bits,
+                    "pc" if self.signed else "abs",
+                )
+            except OperationError as exc:
+                raise ValueError(f"{self.name}: {exc}") from exc
+
+        encoded = self.template
+        for field in self.fields:
+            field_mask = _mask(field.width_bits)
+            target_mask = field_mask << field.target_shift
+            field_value = (scaled >> field.source_shift) & field_mask
+            encoded = (encoded & ~target_mask) | (field_value << field.target_shift)
+        return encoded
 
 
 _BUILTINS: Mapping[str, RelocationSpec] = {
@@ -63,14 +181,110 @@ def _block_value(entry: globals.BlockEntryData, index: int) -> object:
         ) from exc
 
 
-def relocation_specs(context: globals.TargetContext) -> dict[str, RelocationSpec]:
-    """Return built-ins plus declarations from ``@block relocations``.
+def _table_value(table: globals.TableData, row: tuple[Any, ...], column: str) -> Any:
+    try:
+        return row[table.columns[column]]
+    except KeyError as exc:
+        raise ValueError(
+            f"La tabla '{table.name}' requiere la columna '{column}'."
+        ) from exc
 
-    Each generic block line is ``name width mode``. ``mode`` is ``pc`` for a
-    signed displacement from the next virtual instruction byte, ``abs`` for
-    an unsigned absolute virtual address, or ``arm_pc24`` for an ARM branch
-    displacement (PC+8, word-scaled, signed). The declaration is deliberately
-    independent of any ISA except for explicitly named target modes.
+
+def _optional_table_value(
+    table: globals.TableData,
+    row: tuple[Any, ...],
+    column: str,
+    default: Any,
+) -> Any:
+    if column not in table.columns:
+        return default
+    return row[table.columns[column]]
+
+
+def _field_table(context: globals.TargetContext) -> dict[str, tuple[RelocationField, ...]]:
+    table = context.tables.get("relocation_fields")
+    if table is None:
+        return {}
+    required = {"relocation", "source_shift", "width", "target_shift"}
+    missing = sorted(required - set(table.columns))
+    if missing:
+        raise ValueError(
+            "La tabla 'relocation_fields' requiere las columnas: "
+            + ", ".join(missing)
+            + "."
+        )
+    fields: dict[str, list[RelocationField]] = {}
+    for row in table.matrix:
+        name = _table_value(table, row, "relocation")
+        if not isinstance(name, str) or not name:
+            raise ValueError("relocation_fields.relocation debe ser un nombre.")
+        fields.setdefault(name, []).append(
+            RelocationField(
+                _table_value(table, row, "source_shift"),
+                _table_value(table, row, "width"),
+                _table_value(table, row, "target_shift"),
+            )
+        )
+    return {name: tuple(items) for name, items in fields.items()}
+
+
+def _table_specs(
+    context: globals.TargetContext,
+    existing: Mapping[str, RelocationSpec],
+) -> dict[str, RelocationSpec]:
+    table = context.tables.get("relocations")
+    if table is None:
+        orphan_fields = _field_table(context)
+        if orphan_fields:
+            raise ValueError(
+                "relocation_fields requiere una tabla 'relocations' con sus recetas."
+            )
+        return {}
+    required = {"name", "width", "mode"}
+    missing = sorted(required - set(table.columns))
+    if missing:
+        raise ValueError(
+            "La tabla 'relocations' requiere las columnas: "
+            + ", ".join(missing)
+            + "."
+        )
+    fields = _field_table(context)
+    result: dict[str, RelocationSpec] = {}
+    for row in table.matrix:
+        name = _table_value(table, row, "name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("relocations.name debe ser un nombre.")
+        if name in existing or name in result:
+            raise ValueError(f"La relocación '{name}' está duplicada.")
+        spec = RelocationSpec(
+            name=name,
+            width_bits=_table_value(table, row, "width"),
+            mode=_table_value(table, row, "mode"),
+            pc_bias=_optional_table_value(table, row, "pc_bias", 0),
+            scale=_optional_table_value(table, row, "scale", 1),
+            alignment=_optional_table_value(table, row, "alignment", 1),
+            signed=_optional_table_value(table, row, "signed", None),
+            template=_optional_table_value(table, row, "template", 0),
+            fields=fields.get(name, ()),
+        )
+        result[name] = spec
+    unknown_fields = sorted(set(fields) - set(result))
+    if unknown_fields:
+        raise ValueError(
+            "relocation_fields referencia relocaciones inexistentes: "
+            + ", ".join(unknown_fields)
+            + "."
+        )
+    return result
+
+
+def relocation_specs(context: globals.TargetContext) -> dict[str, RelocationSpec]:
+    """Return built-ins and target-declared generic relocation recipes.
+
+    Simple ``@block relocations`` entries keep the ``name width mode`` form
+    for ordinary ``pc`` and ``abs`` fields. Complex encodings use two tables:
+    ``relocations`` describes the displacement transform and ``relocation_fields``
+    describes how transformed bits are placed into the output template.
     """
 
     specs = dict(_BUILTINS)
@@ -90,18 +304,18 @@ def relocation_specs(context: globals.TargetContext) -> dict[str, RelocationSpec
                 raise ValueError(
                     f"El ancho de la relocación '{entry.name}' debe ser positivo y múltiplo de ocho."
                 )
-            if mode in {"relative", "pcrel", "pc"}:
+            if mode in {"relative", "pcrel"}:
                 mode = "pc"
-            elif mode in {"arm_pc24", "arm-branch24", "arm_branch24"}:
-                mode = "arm_pc24"
-            elif mode in {"absolute", "abs"}:
+            elif mode == "absolute":
                 mode = "abs"
-            else:
-                raise ValueError(f"El modo de la relocación '{entry.name}' no es válido.")
-            name = entry.name
-            if not name or name in specs:
-                raise ValueError(f"La relocación '{name}' está duplicada.")
-            specs[name] = RelocationSpec(name, width, mode)
+            if mode not in {"pc", "abs"}:
+                raise ValueError(
+                    f"El modo de la relocación '{entry.name}' solo puede ser pc o abs."
+                )
+            if entry.name in specs:
+                raise ValueError(f"La relocación '{entry.name}' está duplicada.")
+            specs[entry.name] = RelocationSpec(entry.name, width, mode)
+    specs.update(_table_specs(context, specs))
     return specs
 
 
@@ -112,4 +326,9 @@ def relocation_spec(context: globals.TargetContext, name: str) -> RelocationSpec
         raise ValueError(f"Clase de relocación desconocida: {name!r}.") from exc
 
 
-__all__ = ["RelocationSpec", "relocation_spec", "relocation_specs"]
+__all__ = [
+    "RelocationField",
+    "RelocationSpec",
+    "relocation_spec",
+    "relocation_specs",
+]

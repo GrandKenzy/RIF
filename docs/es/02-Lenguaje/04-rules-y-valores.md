@@ -125,16 +125,58 @@ virtuales absolutas. Un target puede añadir clases sin hardcodear una ISA:
 @end
 ```
 
-Después se usan igual: `. fixup rel24 "slot"`. También existe el modo
-`arm_pc24`, que calcula el desplazamiento ARM desde `PC+8` y lo escala a
-palabras de 32 bits; sirve para `B` y `BL` del ARM7TDMI. Las clases se validan
-y aplican juntas después del MIR, permitiendo símbolos definidos más adelante
-sin dejar parches parciales.
+Después se usan igual: `. fixup rel24 "slot"`. Para formatos no contiguos o
+escalados, el target puede declarar una receta en la tabla `relocations` y sus
+campos de salida en `relocation_fields`. La receta admite sesgo del PC,
+escala, alineación, rango signed/unsigned y una plantilla fija; cada campo
+declara su desplazamiento de origen, ancho y posición de destino. Así los
+campos partidos permanecen en los datos del target y el núcleo solo realiza
+aritmética y colocación genérica de bits. Las clases se validan y aplican
+juntas después del MIR, permitiendo símbolos definidos más adelante sin dejar
+parches parciales.
+
+Por ejemplo, un target puede describir un campo de 16 bits con un
+desplazamiento signed de 11 bits sin nombrar la codificación en RIF:
+
+```rif
+@table relocations
+| name | width | mode | pc_bias | scale | alignment | signed | template |
+__
+| short_branch | 16 | pc | 2 | 2 | 2 | true | 0xE000 |
+@end
+
+@table relocation_fields
+| relocation | source_shift | width | target_shift |
+__
+| short_branch | 0 | 11 | 0 |
+@end
+```
+
+La Rule solo referencia `. fixup short_branch "slot"`. El mismo modelo
+permite colocar varios campos provenientes de un único valor escalado.
 
 La directiva MIR `::RIF_SECTION text` cambia el emisor activo de un MIR
 sectionado. Solo está disponible cuando la ejecución tiene una
 `AssemblyImage`; los símbolos y relocaciones conservan la sección donde fueron
 definidos.
+
+## Transformaciones genéricas de bits
+
+Las Rules pueden encadenar operaciones escalares mediante el datastack:
+
+```rif
+. dpush 0xD4
+. shift_right dget 2
+. extract_bits dget 0 4
+. bits dget 4
+```
+
+`shift_left` y `shift_right` reciben `valor, cantidad`; `extract_bits` recibe
+`valor, offset, ancho`; e `insert_bits` recibe `base, valor, offset, ancho`.
+Cada operación valida sus entradas y coloca un resultado en el datastack.
+`dget` consume el resultado cuando está listo para emitirse. Estas
+instrucciones solo manipulan campos escalares; no conocen una ISA, plantillas
+de instrucciones ni el orden de bytes.
 
 ## Ajuste de inmediatos
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from plugins import PluginError, convert_audio, convert_image
+from plugins import PluginError, convert_audio, convert_font, convert_image
 
 
 HAS_PILLOW = importlib.util.find_spec("PIL") is not None
@@ -17,6 +17,11 @@ HAS_AUDIO = (
     importlib.util.find_spec("soundfile") is not None
     and importlib.util.find_spec("numpy") is not None
 )
+FONT_CANDIDATES = (
+    Path("C:/Windows/Fonts/arial.ttf"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+)
+FONT_FIXTURE = next((path for path in FONT_CANDIDATES if path.is_file()), None)
 
 
 class PluginInputTests(unittest.TestCase):
@@ -25,6 +30,12 @@ class PluginInputTests(unittest.TestCase):
             convert_image("https://example.com/image.png")
         with self.assertRaises(PluginError):
             convert_audio(b"local.wav")
+
+    def test_font_bytes_copies_ttf_without_a_rasterizer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "font.ttf"
+            source.write_bytes(b"ttf-bytes")
+            self.assertEqual(convert_font(source, "BYTES"), b"ttf-bytes")
 
 
 @unittest.skipUnless(HAS_PILLOW, "Pillow no está instalado")
@@ -49,6 +60,36 @@ class ImagePluginTests(unittest.TestCase):
             result = convert_image(source, "BGRX8888")
 
         self.assertEqual(result, bytes((15, 10, 5, 0)) * 2)
+
+    def test_image_is_converted_to_gba_bgr555_little_endian(self) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "pixel.png"
+            image = Image.new("RGBA", (3, 1))
+            image.putdata(((255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)))
+            image.save(source)
+            result = convert_image(source, "BGR555")
+
+        self.assertEqual(result, bytes.fromhex("1f00e003007c"))
+
+
+@unittest.skipUnless(HAS_PILLOW and FONT_FIXTURE is not None, "Pillow o una fuente TTF no están instalados")
+class FontPluginTests(unittest.TestCase):
+    def test_font_bitmap_mono1_is_a_grid_atlas(self) -> None:
+        result = convert_font(
+            FONT_FIXTURE,
+            "BITMAP",
+            pixel_format="MONO1",
+            size=8,
+            glyphs="AB",
+            cell_width=8,
+            cell_height=8,
+            columns=2,
+        )
+
+        self.assertEqual(len(result), 16)
+        self.assertTrue(any(result))
 
 
 @unittest.skipUnless(HAS_AUDIO, "soundfile/numpy no están instalados")

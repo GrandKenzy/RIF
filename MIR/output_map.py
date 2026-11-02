@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .relocations import relocation_spec
+
 
 OUTPUT_MAP_FORMAT = "RIF_OUTPUT_MAP"
 OUTPUT_MAP_VERSION = 1
@@ -119,7 +121,8 @@ def build_output_map(compilation: Any) -> OutputMap:
         section = image.sections[section_name]
         target_address = absolute_symbols[fixup.symbol]
         next_address = section.virtual_base + fixup.next_virtual_bits // 8
-        value = target_address - next_address if fixup.kind.startswith("pc") else target_address
+        spec = relocation_spec(compilation.program.context, fixup.kind)
+        value = target_address - next_address if spec.relative else target_address
         relocations.append(
             {
                 "index": index,

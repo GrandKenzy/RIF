@@ -55,6 +55,43 @@ The alias is local to that MIR compilation and must be declared before use.
 typed values. Raw payloads, images, audio, and files are copied unchanged. The
 older path form with four numeric arguments remains valid.
 
+`::RIF_INCLUDE` splices a source at the current position, so a large MIR
+program can be split into ordered parts without relying on linker search paths.
+The included file must use the extension declared by the target linker; `.gbaa`
+is valid when the linker declares `.gbaa`:
+
+```text
+::RIF_INCLUDE "parts/init.gbaa"
+::RIF_INCLUDE "parts/copy_cube.gbaa"
+::RIF_INCLUDE "parts/controls.gbaa"
+::RIF_INCLUDE "parts/tests.gbaa"
+::RIF_INCLUDE "parts/data.gbaa"
+```
+
+Include paths are relative to the file containing the directive, nested
+includes are supported, traversal outside that directory is rejected, and
+cycles or excessive nesting fail before Rule execution.
+
+`::RIF_CHECKSUM` runs after Rules, STORE/PCP-I materialization, relocations, and
+patches. It zeroes every declared checksum field while calculating, so the
+result does not include itself or another checksum field:
+
+```text
+::RIF_CHECKSUM CRC32 IMAGE WRITE 0x1C
+::RIF_CHECKSUM CRC16 SECTION rom WRITE 0x10
+::RIF_CHECKSUM SUM8 IMAGE RANGE 0x100 0x200 WRITE 0x20
+::RIF_CHECKSUM GBA_HEADER IMAGE WRITE 0xBD
+```
+
+`IMAGE` uses an absolute file offset. `SECTION` calculates only that section and
+uses an offset relative to it. `RANGE` uses offsets relative to the selected
+image or section scope and its end is exclusive. Without `RANGE`, the whole
+scope is used. `CRC32` is IEEE CRC-32, `CRC16` is CRC-16/CCITT-FALSE, and
+`SUM8` emits the sum modulo 256. `GBA_HEADER` applies the GBA complement
+formula to bytes `0xA0..0xBC` and writes one byte at `0xBD`. The encoded result
+uses the target's configured byte order. The destination must already fit inside
+the emitted image; reserve its bytes with a Rule, `RIF_INSERT`, STORE, or PCP-I.
+
 ## Command Line
 
 The canonical command-line entrypoint is `main.py`, invoked through VNMA:

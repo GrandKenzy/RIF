@@ -136,6 +136,46 @@ class StoreTests(unittest.TestCase):
             bytes.fromhex("0103A0E30310A0E3011B81E3B010C0E1"),
         )
 
+    def test_store_compiles_ttf_as_raw_font_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            font = root / "font.ttf"
+            font.write_bytes(b"ttf-bytes")
+            source = root / "font.store"
+            source.write_text(
+                'MAGIC "store"\n'
+                "VERSION 2\n"
+                "@FONT raw_font:\n"
+                'source "font.ttf"\n'
+                "output BYTES\n"
+                "@end\n",
+                encoding="utf-8",
+            )
+
+            definition = parse_store(source)
+            storage = parse_storage(compile_store(source).storage)
+
+        self.assertEqual(definition.items[0].kind, "FONT")
+        self.assertEqual(storage.payload("raw_font"), b"ttf-bytes")
+
+    def test_store_rejects_font_in_version_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "font.ttf").write_bytes(b"ttf")
+            source = root / "font.store"
+            source.write_text(
+                'MAGIC "store"\n'
+                "VERSION 1\n"
+                "@FONT raw_font:\n"
+                'source "font.ttf"\n'
+                "output BYTES\n"
+                "@end\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(StoreError, "@FONT requieren VERSION 2"):
+                parse_store(source)
+
     def test_store_rejects_inline_binary_in_version_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "invalid.store"

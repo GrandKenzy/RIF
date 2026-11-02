@@ -372,6 +372,37 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(result.buffer, b"\x01\x08\x08")
             self.assertEqual(machine.datastack, [])
 
+    def test_generic_bit_operations_compose_on_the_datastack(self) -> None:
+        source = (
+            "@rule fields:\n"
+            ". dpush 0xD4\n"
+            ". shift_right dget 2\n"
+            ". extract_bits dget 0 4\n"
+            ". bits dget 4\n"
+            "@rule left:\n"
+            ". dpush 0x12\n"
+            ". shift_left dget 4\n"
+            ". bits dget 16\n"
+            "@rule put_bits:\n"
+            ". dpush 0xFFFF\n"
+            ". insert_bits dget 2 4 4\n"
+            ". bits dget 16\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            program = self.compile(source, Path(directory) / "bit-operations.rif")
+
+            fields = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            self.assertEqual(fields.execute("fields", ()).buffer, b"P")
+            self.assertEqual(fields.datastack, [])
+
+            left = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            self.assertEqual(left.execute("left", ()).buffer, b"\x20\x01")
+            self.assertEqual(left.datastack, [])
+
+            put_bits = RIFMachine(program, emitter=BitEmitter(wordsize=8))
+            self.assertEqual(put_bits.execute("put_bits", ()).buffer, b"/\xff")
+            self.assertEqual(put_bits.datastack, [])
+
     def test_datastack_table_capture_consumes_token_and_allows_repeated_data(self) -> None:
         source = (
             "@table registers\n"

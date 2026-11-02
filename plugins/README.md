@@ -4,10 +4,21 @@ These converters accept existing local filesystem paths only. They do not
 fetch URLs and they do not accept in-memory `bytes`.
 
 ```python
-from plugins import convert_audio, convert_image
+from plugins import convert_audio, convert_font, convert_image
 
 image = convert_image("sprite.png")
 audio = convert_audio("sound.wav")
+font_bytes = convert_font("font.ttf", "BYTES")
+font_bitmap = convert_font(
+    "font.ttf",
+    "BITMAP",
+    pixel_format="MONO1",
+    size=8,
+    glyphs="ASCII_PRINTABLE",
+    cell_width=8,
+    cell_height=8,
+    columns=16,
+)
 ```
 
 From a standalone `.store` source, the raw bytes can be indexed without coupling the media conversion to RIF:
@@ -42,14 +53,23 @@ relative address, `u64` payload size, `u32` alignment padding, and `u32`
 label size. The UTF-8 label bytes live directly after that entry's payload in
 the raw region.
 
-`convert_image` returns immutable row-major `RGB888`, `RGBA8888`, or
-framebuffer-ready `BGRX8888` bytes. `BGRX8888` composites transparency over
-black and drops alpha because the target format has no alpha channel. It
-requires Pillow; dimensions are intentionally not part of the plugin result.
+`convert_image` returns immutable row-major `RGB888`, `RGBA8888`, framebuffer-
+ready `BGRX8888`, or GBA `BGR555` bytes. `BGRX8888` composites transparency
+over black and drops alpha because the target format has no alpha channel.
+`BGR555` emits the GBA layout `0BBBBBGGGGGRRRRR` as little-endian 16-bit
+pixels and applies the same transparent-over-black policy. It requires
+Pillow; dimensions are intentionally not part of the plugin result.
 
 `convert_audio` returns only immutable interleaved signed little-endian
 `PCM_S16LE` bytes from WAV, FLAC, or OGG containers. It requires `soundfile`
 and NumPy; stream metadata is intentionally not part of the plugin result.
+
+`convert_font` accepts only local `.ttf` files. `BYTES` returns the original
+font bytes without a rasterizer. `BITMAP` creates a row-major `GRID` atlas and
+supports `MONO1`, `GRAY8`, and `RGBA8888`. `MONO1` packs pixels MSB-first and
+is suitable for fixed-size GBA glyph cells. Bitmap conversion requires Pillow;
+font size, glyph selection, cell dimensions, and atlas columns are explicit so
+the output does not depend on a host font fallback.
 
 Video conversion is intentionally outside the RIF plugin scope.
 

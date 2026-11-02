@@ -16,7 +16,7 @@ INSTRUCTION_OPCODES = {
         "fit_signed", "fit_signed_exact", "fit_signed_not",
         "vpad", "vreserve", "dpush", "dget", "dpop",
         "bits", "read_bits", "patch_bits", "valign", "mark", "fixup",
-        "arm_imm8", "arm_imm_rotate",
+        "shift_left", "shift_right", "extract_bits", "insert_bits",
     )
 }
 INSTRUCTION_OPCODES.update({"KW": "kw", "JUMP": "jump"})

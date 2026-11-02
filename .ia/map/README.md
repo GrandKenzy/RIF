@@ -97,9 +97,11 @@ Las instrucciones de una Rule usan un marcador `.` al inicio de cada línea
 Las operaciones binarias usan los nombres canónicos `nibbles`, `emit`,
 `eword`, `bits`, `frame`, `fit`, `fit_exact`, `pad`, `align`, `vpad`,
 `valign`, `write_res`, `emit_res`, `read_bits`, `patch_bits`, `fit_not`,
-`fit_signed`, `fit_signed_exact`, `fit_signed_not` y `drop_res`. `reserve` y
-`vreserve` conservan sus nombres porque no recibieron un reemplazo en esta
-revisión.
+`fit_signed`, `fit_signed_exact`, `fit_signed_not`, `shift_left`,
+`shift_right`, `extract_bits`, `insert_bits` y `drop_res`. Las cuatro
+operaciones de bits colocan su resultado en el datastack para poder
+encadenarse antes de `bits`. `reserve` y `vreserve` conservan sus nombres
+porque no recibieron un reemplazo en esta revisión.
 
 Los nombres de opcodes, keywords, tokens sintácticos y operaciones visibles
 (`frameend`, `dpeek`, `ddepth`, entre otros) pertenecen al espacio reservado de
@@ -115,10 +117,13 @@ el layout. Su matcher fijo usa `MatchSeqSymbol`, que forma parte del
 subconjunto C/AOT de Gram. La directiva MIR `::RIF_SECTION nombre` cambia el
 emisor activo dentro de una `AssemblyImage`. `fixup pc8|pc32|abs64 "reserva"` registra una
 relocación diferida contra el símbolo actual; el núcleo incluye anchos
-`pc8|pc16|pc32|pc64` y `abs8|abs16|abs32|abs64`, y los targets pueden añadir
-clases `pc`/`abs` en `@block relocations`. `MIR/external.py` las resuelve de
-forma transaccional después de ejecutar todas las líneas MIR y antes de los
-parches finales.
+`pc8|pc16|pc32|pc64` y `abs8|abs16|abs32|abs64`; los targets pueden añadir
+clases simples `pc`/`abs` en `@block relocations` o recetas complejas mediante
+las tablas `relocations` y `relocation_fields`. Una receta declara el sesgo,
+escala, alineación, rango, plantilla y campos de salida; el núcleo no conoce
+ARM, Thumb ni ninguna otra ISA. `MIR/external.py` las resuelve de forma
+transaccional después de ejecutar todas las líneas MIR y antes de los parches
+finales.
 
 Las Rules y las imágenes usan checkpoints físicos y virtuales. Un fallo
 restaura buffers, reservas, cursores virtuales, símbolos, fixups, datastack y
@@ -164,8 +169,10 @@ Los controles de Rule usan `JUMP`, `JUMPIF`, `BREAK`, `ERROR`, `save`, `load`,
   `calc.py` contiene la aritmética de `#:calc` y `reqsts.py` descarga bytes
   `.bin` desde rutas GitHub validadas.
 - `plugins/`: conversiones locales previas a la compilación. `image.py`
-  produce bytes RGBA8888 y `audio.py` produce bytes PCM_S16LE desde WAV, FLAC
-  u OGG; ambos rechazan URLs y bytes en memoria. Todo plugin debe devolver
+  produce bytes RGBA8888, BGRX8888 y BGR555; `audio.py` produce bytes
+  PCM_S16LE desde WAV, FLAC u OGG; `font.py` copia TTF o rasteriza atlas
+  MONO1, GRAY8 y RGBA8888. Todos rechazan URLs y bytes en memoria. Todo
+  plugin debe devolver
   exclusivamente `bytes`; no se incluye conversión de vídeo.
 - `MIR/storage.py`: contenedor `RIFSTOR` versionado para payloads nombrados;
   guarda el raw y un índice de entradas con dirección relativa `u64`, tamaño
@@ -175,14 +182,20 @@ Los controles de Rule usan `JUMP`, `JUMPIF`, `BREAK`, `ERROR`, `save`, `load`,
   seguro alimenta `main.py --doctor-storage`.
 - `rif_tools/store.py`: parser y compilador de fuentes `.store`; valida `MAGIC`,
   `VERSION`, bloques `@ITEM IMAGE`/`@ITEM AUDIO`/`@ITEM BINARY`, bloques
-  binarios inline `@BINARY` en VERSION 2, variables tipadas, `@FILE`, `@REQST`
-  y `@CONTAINER`. VERSION 1 conserva el formato simple; VERSION 2 habilita
+  binarios inline `@BINARY` en VERSION 2, bloques `@FONT` TTF, variables tipadas,
+  `@FILE`, `@REQST` y `@CONTAINER`. VERSION 1 conserva el formato simple;
+  VERSION 2 habilita
   valores tipados, `@REQST` y bytes inline. Las rutas permanecen
   acotadas al store, los containers importan labels validados y
   `BINARY`/`@FILE` copian archivos opacos byte por byte sin invocar plugins.
 - `MIR/external.py`: consumo de entradas MIR externas y validación del linker.
 - `MIR/preprocessor.py`: reconoce directivas cerradas de metaprogramación
-  (`::RIF_PCPI` y `::RIF_STORE`) antes del despacho de Rules; `RIF_PCPI SET`
+  (`::RIF_PCPI`, `::RIF_STORE` y `::RIF_INCLUDE`) antes del despacho de Rules;
+  `RIF_INCLUDE` expande fuentes anidadas compatibles con la extensión del
+  linker, en orden y con rutas relativas seguras. `RIF_CHECKSUM` admite CRC,
+  sumas de rango y el complemento de cabecera GBA, y se difiere hasta después
+  de materializar artefactos, relocaciones y patches;
+  `RIF_PCPI SET`
   materializa `PADDING + RAW + RPAD` sin el header ni la tabla `.pcic`,
   `RIF_PCPI FILL` resuelve todos los pits y `RIF_PCPI PIT` calcula offsets absolutos,
   mientras `RIF_STORE` valida `ENDIANNESS`/`BITORDER`, permite alias locales de
@@ -215,7 +228,7 @@ Los controles de Rule usan `JUMP`, `JUMPIF`, `BREAK`, `ERROR`, `save`, `load`,
   por nivel.
   `examples/`: targets y demostraciones completas, incluyendo el demo
   agnóstico `RIF-Core-Demo`, `amd64-friendlysyntaxs` y sus probes QEMU,
-  AMD64 bare metal, ELF64 y GBA. Los ejemplos ELF64 y MiniOS viven bajo
+  AMD64 bare metal y ELF64. Los ejemplos ELF64 y MiniOS viven bajo
   `examples/probe/`. El target
   `AMD64_Baremetal` emite imágenes raw y no asume un sistema operativo,
   formato de objeto ni ABI externo. Los `.rif` de ejemplo no viven en la raíz
@@ -226,10 +239,6 @@ de `main.rif` y `main_rw.rif`; ambos conservan solo su configuración raíz y el
 alineamiento diferencial de `data`. Los programas MIR del target base Friendly
   Syntax están en `examples/probe/probe_friendlysyntax/`; el target QEMU
   completo y sus probes están en `examples/probe/probe_friendlysyntax_qemu/`.
-  `examples/GBA-Bouncing-Ball/` reutiliza la plantilla PCP-I compartida de
-  `examples/headers/GBA_ROM_arm7tdmi_little.pcpi`; su build compila el `.pcic`
-  y solo rellena sus pits antes de anexar el código ARM/Thumb.
-
 El perfil `AMD64_Baremetal` mantiene sus decisiones de ISA fuera del núcleo:
 `registers.rif` concentra los datos canónicos por familia; `integer.rif` y
 `prefixes.rif` reutilizan esas columnas para BSWAP y direcciones de 32 bits,
@@ -374,19 +383,6 @@ anterior; la semántica sigue
 en Python; la mejora restante proviene de que los nueve `@LOAD` ya no vuelven
 a tokenizarse y parsearse con Python, sino que reutilizan el parser AOT.
 
-El ejemplo `examples/GBA-Bouncing-Ball/main.rif` también se midió con su
-variante `thumb.rif` activa:
-
-| Métrica | Python | AOT |
-| --- | ---: | ---: |
-| Lexer + parser / GIR + adaptación | 0,256243 s | 0,034425 s |
-| Recepción de variante + semántica | 0,196038 s | 0,104822 s |
-| Total | 0,452281 s | 0,139247 s |
-
-El frontend AOT reduce el total de este target GBA aproximadamente 60%; la
-semántica permanece en Python y la diferencia restante corresponde a la
-recepción de `thumb.rif`.
-
 La ruta AOT ya está activada como predeterminada; queda ampliar la cobertura
 de diagnósticos y fixtures conforme evolucione Gram.
 
@@ -415,12 +411,13 @@ ofrece fuzzing determinista por seed para operandos y primitivas.
 `MIR.operations` es la frontera C/AOT para operaciones puras dentro de Rules.
 `operation_abi()`/`operation_abi_json()` describen la tabla cerrada y
 `operation_c_header()` y `operation_c_source()` devuelven las firmas e
-implementación C portables. La ABI actual es `1.1` y cubre fit unsigned, fit
-signed y encoding de relocaciones. `rif_op_encode_relocation` usa `uint64_t`
-como transporte: los relativos se interpretan como patrones signed en
-complemento a dos y los absolutos conservan el dominio completo de 64 bits.
-El runtime Python usa esas mismas primitivas; no se serializan callbacks
-Python en `.pack`.
+implementación C portables. La ABI actual es `1.2` y cubre ajuste unsigned y
+signed, desplazamientos escalares, extracción/inserción de campos y encoding
+de relocaciones. `rif_op_encode_relocation` usa `uint64_t` como transporte:
+los relativos se interpretan como patrones signed en complemento a dos y los
+absolutos conservan el dominio completo de 64 bits. Las primitivas de bits no
+conocen ARM, Thumb, registros ni opcodes. El runtime Python usa esas mismas
+primitivas; no se serializan callbacks Python en `.pack`.
 
 Los targets AMD64 que declaran `entry text "_start"` también deben exponer una
 Rule `_start` con `. mark` antes de consumir el identificador. La configuración

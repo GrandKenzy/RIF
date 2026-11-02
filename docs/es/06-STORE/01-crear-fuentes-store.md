@@ -14,7 +14,7 @@ VERSION 1
 ```
 
 Usa `VERSION 1` para payloads locales/raw. Usa `VERSION 2` cuando haya
-declaraciones tipadas o `@REQST`:
+declaraciones tipadas, `@REQST` o conversión de fuentes TTF:
 
 ```text
 MAGIC "store"
@@ -41,7 +41,7 @@ Los tipos de item soportados son `IMAGE`, `AUDIO` y `BINARY`.
 
 | Tipo | Formatos locales | Comportamiento |
 | :--- | :--- | :--- |
-| `IMAGE` | `png`, `jpg`, `jpeg`, `bmp`, `gif`, `tga`, `webp` | Usa el plugin de imagen con el formato de salida declarado. |
+| `IMAGE` | `png`, `jpg`, `jpeg`, `bmp`, `gif`, `tga`, `webp` | Usa el plugin de imagen con el formato de salida declarado, incluido `BGR555` para píxeles GBA. |
 | `AUDIO` | `wav`, `flac`, `ogg` | Usa el plugin de audio con el formato de salida declarado. MP3 no es una entrada de audio STORE. |
 | `BINARY` | `bin`, `dat`, `raw` | Copia el archivo byte por byte. El formato de datos debe ser `RAW` o `BYTES`; no ejecuta plugins de media. |
 
@@ -49,6 +49,44 @@ Para `IMAGE` y `AUDIO`, el tercer campo es el formato de salida del plugin,
 como el formato soportado por el conversor seleccionado. La extensión del
 archivo debe coincidir con el formato declarado. En `BINARY`, `raw` significa
 bytes opacos, no un parser ni un ensamblador.
+
+## Fuentes TTF
+
+`VERSION 2` puede consumir una fuente local `.ttf` mediante `@FONT`. La entrada
+siempre es TTF; el perfil de salida decide si se guardan los bytes originales o
+un atlas bitmap:
+
+```text
+@FONT raw_font:
+    source "assets/font.ttf"
+    output BYTES
+@end
+
+@FONT gba_font:
+    source "assets/font.ttf"
+    output BITMAP
+    pixel_format MONO1
+    size 8
+    cell_width 8
+    cell_height 8
+    glyphs ASCII_PRINTABLE
+    layout GRID
+    columns 16
+@end
+```
+
+`BYTES` copia el TTF exactamente y no requiere Pillow. `BITMAP` usa el plugin
+de fuentes para crear un atlas `GRID` en orden por filas. Los formatos de píxel
+soportados son `MONO1` (un bit MSB-first por píxel), `GRAY8` (un byte de alpha
+por píxel) y `RGBA8888` (glifos blancos con el alpha rasterizado).
+`ASCII_PRINTABLE` selecciona los códigos `0x20` a `0x7E`; `ASCII` selecciona
+`0x00` a `0x7F`; cualquier otro valor entre comillas en `glyphs` se interpreta
+como una secuencia explícita de caracteres. `columns` controla el ancho del
+atlas. Cada bloque `@FONT` crea una entrada raw usando su nombre como label.
+
+La conversión bitmap requiere Pillow y solo acepta rutas locales. La fuente
+debe terminar en `.ttf` y los límites de recursos se aplican tanto a la entrada
+como al atlas generado.
 
 ## Bloques binarios inline
 

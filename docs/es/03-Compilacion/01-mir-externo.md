@@ -50,6 +50,44 @@ bytes (`ENDIANNESS`, `1` little o `2` big) para los valores tipados. Los
 payloads raw, imágenes, audio y archivos se copian sin transformación. La
 forma antigua con ruta y los cuatro argumentos numéricos sigue siendo válida.
 
+`::RIF_INCLUDE` inserta un archivo en la posición actual, permitiendo separar
+un MIR grande en partes ordenadas sin depender de las rutas de búsqueda del
+linker. El archivo incluido debe usar la extensión declarada por el linker;
+`.gbaa` es válido cuando el linker declara `.gbaa`:
+
+```text
+::RIF_INCLUDE "parts/init.gbaa"
+::RIF_INCLUDE "parts/copy_cube.gbaa"
+::RIF_INCLUDE "parts/controls.gbaa"
+::RIF_INCLUDE "parts/tests.gbaa"
+::RIF_INCLUDE "parts/data.gbaa"
+```
+
+Las rutas son relativas al archivo que contiene la directiva, se admiten
+includes anidados, se rechaza salir de esa carpeta y los ciclos o una
+profundidad excesiva fallan antes de ejecutar Rules.
+
+`::RIF_CHECKSUM` se ejecuta después de Rules, de materializar STORE/PCP-I, de
+resolver relocaciones y de aplicar patches. Pone en cero todos los campos de
+checksum mientras calcula, por lo que el resultado no depende de sí mismo ni
+de otro checksum:
+
+```text
+::RIF_CHECKSUM CRC32 IMAGE WRITE 0x1C
+::RIF_CHECKSUM CRC16 SECTION rom WRITE 0x10
+::RIF_CHECKSUM SUM8 IMAGE RANGE 0x100 0x200 WRITE 0x20
+::RIF_CHECKSUM GBA_HEADER IMAGE WRITE 0xBD
+```
+
+`IMAGE` usa un offset absoluto dentro del archivo final. `SECTION` calcula solo
+esa sección y usa un offset relativo a ella. `RANGE` usa offsets relativos al
+ámbito seleccionado y su final es exclusivo. Sin `RANGE`, se usa todo el ámbito.
+`CRC32` es IEEE CRC-32, `CRC16` es CRC-16/CCITT-FALSE y `SUM8` emite la suma
+módulo 256. `GBA_HEADER` aplica la fórmula de complemento de GBA a los bytes
+`0xA0..0xBC` y escribe un byte en `0xBD`. El resultado usa el endianness
+configurado por el target. El destino debe caber dentro de la imagen emitida;
+reserva sus bytes con una Rule, `RIF_INSERT`, STORE o PCP-I.
+
 ## Línea de comandos
 
 ```powershell

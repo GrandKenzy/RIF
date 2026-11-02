@@ -13,7 +13,7 @@ from pathlib import Path
 
 from MIR.storage import StorageError, StorageBuilder, StorageImage, parse_storage
 from MIR.functions.reqsts import ReqstsError, reqsts
-from plugins import PluginError, convert_audio, convert_image
+from plugins import PluginError, convert_audio, convert_font, convert_image
 
 
 SUPPORTED_ITEMS = frozenset({"IMAGE", "AUDIO", "BINARY"})
@@ -32,6 +32,13 @@ GET_PATTERN = re.compile(r"^get\s+([A-Za-z_][A-Za-z0-9_]*)$", re.IGNORECASE)
 REQST_PATTERN = re.compile(r"^@REQST\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$", re.IGNORECASE)
 FILE_PATTERN = re.compile(r"^@FILE\s+(.+)$", re.IGNORECASE)
 CONTAINER_PATTERN = re.compile(r"^@CONTAINER\s+(.+)$", re.IGNORECASE)
+FONT_PATTERN = re.compile(
+    r"^@FONT\s+([A-Za-z_][A-Za-z0-9_]*)\s*:$", re.IGNORECASE
+)
+FONT_FIELD_PATTERN = re.compile(
+    r"^(source|output|pixel_format|size|glyphs|cell_width|cell_height|layout|columns)\s+(.+)$",
+    re.IGNORECASE,
+)
 
 TYPE_ALIASES = {
     "str": "str",
@@ -82,6 +89,7 @@ class StoreItem:
     label: str
     line: int
     literal: object | None = None
+    options: tuple[tuple[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -204,6 +212,79 @@ def _parse_container_directive(line: str, line_number: int) -> str:
     return _quoted(body[:-1].rstrip(), line_number, "@CONTAINER")
 
 
+def _parse_font_field(line: str, line_number: int) -> tuple[str, object]:
+    match = FONT_FIELD_PATTERN.fullmatch(line)
+    if not match:
+        raise StoreError(
+            "Campo de @FONT desconocido o inválido en línea "
+            f"{line_number}: {line}."
+        )
+    name = match.group(1).lower()
+    raw_value = match.group(2).strip()
+    if name in {"size", "cell_width", "cell_height", "columns"}:
+        try:
+            value = int(raw_value, 0)
+        except ValueError as exc:
+            raise StoreError(
+                f"{name} de @FONT requiere un entero en línea {line_number}."
+            ) from exc
+        return name, value
+    if raw_value.startswith(("'", '"')):
+        return name, _quoted(raw_value, line_number, f"@FONT {name}")
+    if not LABEL_PATTERN.fullmatch(raw_value):
+        raise StoreError(
+            f"@FONT {name} requiere un valor simple o entre comillas, línea {line_number}."
+        )
+    return name, raw_value
+
+
+def _build_font_item(
+    fields: dict[str, object],
+    label: str,
+    line_number: int,
+) -> StoreItem:
+    if "source" not in fields or "output" not in fields:
+        raise StoreError(
+            f"@FONT {label} requiere source y output, línea {line_number}."
+        )
+    source = fields["source"]
+    output = fields["output"]
+    if not isinstance(source, str) or not source:
+        raise StoreError(f"@FONT {label} requiere una ruta TTF válida.")
+    if not isinstance(output, str) or output.upper() not in {"BYTES", "BITMAP"}:
+        raise StoreError(f"@FONT {label} solo acepta output BYTES o BITMAP.")
+    normalized_output = output.upper()
+    allowed = {
+        "source",
+        "output",
+        "pixel_format",
+        "size",
+        "glyphs",
+        "cell_width",
+        "cell_height",
+        "layout",
+        "columns",
+    }
+    if normalized_output == "BYTES" and set(fields) - {"source", "output"}:
+        raise StoreError(
+            f"@FONT {label} output BYTES no acepta opciones de bitmap."
+        )
+    options = tuple(
+        (name, value)
+        for name, value in fields.items()
+        if name not in {"source", "output"} and name in allowed
+    )
+    return StoreItem(
+        "FONT",
+        source,
+        "ttf",
+        normalized_output,
+        label,
+        line_number,
+        options=options,
+    )
+
+
 def _parse_inline_binary(line: str, line_number: int) -> bytes:
     """Parse one line of two-digit hexadecimal byte values."""
 
@@ -229,6 +310,7 @@ def _is_top_level_start(line: str) -> bool:
         or FILE_PATTERN.fullmatch(line)
         or REQST_PATTERN.fullmatch(line)
         or CONTAINER_PATTERN.fullmatch(line)
+        or FONT_PATTERN.fullmatch(line)
         or TYPE_PATTERN.fullmatch(line)
     )
 
@@ -253,6 +335,9 @@ def parse_store(source: str | Path) -> StoreDefinition:
     inline_binary_label: str | None = None
     inline_binary_line = 0
     inline_binary_data = bytearray()
+    font_label: str | None = None
+    font_line = 0
+    font_fields: dict[str, object] | None = None
 
     for line_number, original in enumerate(lines, 1):
         line = _strip_comment(original).strip()
@@ -324,6 +409,26 @@ def parse_store(source: str | Path) -> StoreDefinition:
             inline_binary_data.extend(_parse_inline_binary(line, line_number))
             continue
 
+        if font_fields is not None:
+            if line.lower() == "@end":
+                assert font_label is not None
+                _register_item(
+                    items,
+                    labels,
+                    _build_font_item(font_fields, font_label, font_line),
+                )
+                font_label = None
+                font_line = 0
+                font_fields = None
+                continue
+            field_name, field_value = _parse_font_field(line, line_number)
+            if field_name in font_fields:
+                raise StoreError(
+                    f"Campo @FONT duplicado en línea {line_number}: {field_name}."
+                )
+            font_fields[field_name] = field_value
+            continue
+
         if current_kind is None:
             if line.upper().startswith("MAGIC "):
                 if magic is not None:
@@ -378,6 +483,12 @@ def parse_store(source: str | Path) -> StoreDefinition:
                 container_line = line_number
                 container_items = 0
                 continue
+            font_match = FONT_PATTERN.fullmatch(line)
+            if font_match:
+                font_label = font_match.group(1)
+                font_line = line_number
+                font_fields = {}
+                continue
             type_match = TYPE_PATTERN.fullmatch(line)
             if type_match:
                 type_name, literal = _parse_literal(
@@ -428,6 +539,11 @@ def parse_store(source: str | Path) -> StoreDefinition:
 
     if current_kind is not None:
         raise StoreError(f"@ITEM {current_kind} en línea {current_line} no tiene @end.")
+    if font_fields is not None:
+        assert font_label is not None
+        raise StoreError(
+            f"@FONT {font_label} en línea {font_line} no tiene @end."
+        )
     if inline_binary_label is not None:
         raise StoreError(
             f"@BINARY {inline_binary_label} en línea {inline_binary_line} no tiene @end."
@@ -439,9 +555,11 @@ def parse_store(source: str | Path) -> StoreDefinition:
     if version not in SUPPORTED_VERSIONS:
         raise StoreError("VERSION de .store debe ser 1 o 2.")
     if version == 1 and any(
-        item.kind in {"VALUE", "REQST", "INLINE_BINARY"} for item in items
+        item.kind in {"VALUE", "REQST", "INLINE_BINARY", "FONT"} for item in items
     ):
-        raise StoreError("Los valores tipados, @REQST y @BINARY requieren VERSION 2.")
+        raise StoreError(
+            "Los valores tipados, @REQST, @BINARY y @FONT requieren VERSION 2."
+        )
     return StoreDefinition(path, magic, version, tuple(items))
 
 
@@ -460,6 +578,16 @@ def _local_source(root: Path, value: str) -> Path:
 
 
 def _validate_source_format(item: StoreItem, path: Path) -> None:
+    if item.kind == "FONT":
+        if item.source_format != "ttf" or path.suffix.lower() != ".ttf":
+            raise StoreError(
+                f"El formato fuente de {item.label} debe ser un archivo .ttf."
+            )
+        if item.data_format not in {"BYTES", "BITMAP"}:
+            raise StoreError(
+                f"La salida de fuente de {item.label} debe ser BYTES o BITMAP."
+            )
+        return
     if item.kind == "BINARY":
         if item.source_format not in BINARY_INPUTS:
             raise StoreError(
@@ -541,6 +669,15 @@ def compile_store(source: str | Path) -> StoreCompilation:
                     containers[path] = storage
                 payload = storage.payload(item.data_format)
                 value_type = storage.value_type(item.data_format)
+            elif item.kind == "FONT":
+                path = _local_source(root, item.source)
+                _validate_source_format(item, path)
+                payload = convert_font(
+                    path,
+                    item.data_format,
+                    **dict(item.options),
+                )
+                value_type = None
             elif item.kind == "FILE":
                 path = _local_source(root, item.source)
                 payload = path.read_bytes()

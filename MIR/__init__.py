@@ -34,7 +34,7 @@ from .runtime import (
     RuleTrace,
     SymbolAddress,
 )
-from .relocations import RelocationSpec, relocation_spec, relocation_specs
+from .relocations import RelocationField, RelocationSpec, relocation_spec, relocation_specs
 from .functions import (
     CalcError,
     OperationError,
@@ -75,9 +75,11 @@ from .external import (
 from .artifacts import (
     ArtifactError,
     BinaryValue,
+    ChecksumData,
     InsertData,
     PatchData,
     ScalarValue,
+    apply_checksum_directives,
     apply_insert_directives,
     apply_patch_directives,
 )
@@ -143,6 +145,7 @@ __all__ = [
     "RIFRuntimeError",
     "SymbolAddress",
     "RelocationSpec",
+    "RelocationField",
     "relocation_spec",
     "relocation_specs",
     "CalcError",
@@ -182,9 +185,11 @@ __all__ = [
     "validate_target",
     "ArtifactError",
     "BinaryValue",
+    "ChecksumData",
     "InsertData",
     "PatchData",
     "ScalarValue",
+    "apply_checksum_directives",
     "apply_insert_directives",
     "apply_patch_directives",
     "AssemblyImage",

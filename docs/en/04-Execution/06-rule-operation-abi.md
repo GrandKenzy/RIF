@@ -23,6 +23,10 @@ The public operation table currently contains:
 | :--- | :--- | :--- |
 | `fit_unsigned` | value, width, truncate | masked unsigned bit value |
 | `fit_signed` | value, width, truncate | two's-complement bit value |
+| `shift_left` | value, amount | left-shifted non-negative scalar |
+| `shift_right` | value, amount | logical right-shifted scalar |
+| `extract_bits` | value, offset, width | selected bit field |
+| `insert_bits` | base, value, offset, width | base with one field replaced |
 | `encode_relocation` | value, width, mode | encoded `pc` or `abs` value |
 
 The Rules `fit`, `fit_signed*`, and generic relocation classes use these
@@ -59,6 +63,16 @@ scalar representation supports widths from 1 through 64 bits. Wider dynamic
 fields remain available to the Python bit-oriented runtime; a future byte-span
 extension must use a new ABI version rather than silently changing scalar
 signatures.
+
+## Scalar bit fields
+
+The bit primitives are deliberately target-neutral. They do not know about
+instruction sets, registers, opcodes, branches, or endianness. Values are
+non-negative scalar bit patterns; `extract_bits` selects a field and
+`insert_bits` replaces one without silently truncating the inserted value.
+The scalar ABI accepts offsets and shifts below 64 and fields from 1 through
+64 bits. A target can combine these operations with `bits` in whatever field
+order its encoding requires.
 
 ## Signed and relative values
 

@@ -13,7 +13,7 @@ VERSION 1
 ```
 
 Use `VERSION 1` for local/raw payloads. Use `VERSION 2` when the source
-contains typed declarations or `@REQST`:
+contains typed declarations, `@REQST`, or TTF font conversion:
 
 ```text
 MAGIC "store"
@@ -40,7 +40,7 @@ The supported item kinds are `IMAGE`, `AUDIO`, and `BINARY`.
 
 | Kind | Local source formats | Behavior |
 | :--- | :--- | :--- |
-| `IMAGE` | `png`, `jpg`, `jpeg`, `bmp`, `gif`, `tga`, `webp` | Sends the image through the image plugin using the declared output format. |
+| `IMAGE` | `png`, `jpg`, `jpeg`, `bmp`, `gif`, `tga`, `webp` | Sends the image through the image plugin using the declared output format, including `BGR555` for GBA pixels. |
 | `AUDIO` | `wav`, `flac`, `ogg` | Sends the audio through the audio plugin using the declared output format. MP3 is not a STORE audio input. |
 | `BINARY` | `bin`, `dat`, `raw` | Copies the file byte-for-byte. Its data format must be `RAW` or `BYTES`; no media plugin runs. |
 
@@ -48,6 +48,43 @@ For `IMAGE` and `AUDIO`, the third field is the plugin output format, such as
 the format supported by the selected image or audio converter. The source
 extension must match the declared source format. For `BINARY`, `raw` means
 opaque bytes, not a parser or an assembler.
+
+## TTF fonts
+
+`VERSION 2` can consume one local `.ttf` source through `@FONT`. The source is
+always TTF; the output profile selects whether the original bytes or a bitmap
+atlas is stored:
+
+```text
+@FONT raw_font:
+    source "assets/font.ttf"
+    output BYTES
+@end
+
+@FONT gba_font:
+    source "assets/font.ttf"
+    output BITMAP
+    pixel_format MONO1
+    size 8
+    cell_width 8
+    cell_height 8
+    glyphs ASCII_PRINTABLE
+    layout GRID
+    columns 16
+@end
+```
+
+`BYTES` copies the TTF exactly and does not require Pillow. `BITMAP` uses the
+font plugin to create a row-major `GRID` atlas. The supported pixel formats are
+`MONO1` (one MSB-first bit per pixel), `GRAY8` (one alpha byte per pixel), and
+`RGBA8888` (white glyphs with the rasterized alpha channel). `ASCII_PRINTABLE`
+selects code points `0x20` through `0x7E`; `ASCII` selects `0x00` through
+`0x7F`; any other quoted `glyphs` value is treated as an explicit character
+sequence. `columns` controls the atlas width. Each `@FONT` block creates one
+raw storage entry using its block name as the label.
+
+Bitmap conversion requires Pillow and is local-only. The source path must end
+in `.ttf`, and resource limits apply to both the source and generated atlas.
 
 ## Inline binary blocks
 

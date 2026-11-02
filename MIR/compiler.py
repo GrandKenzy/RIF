@@ -489,6 +489,10 @@ def _compile_raw(
             "fit_signed_not",
             "vpad",
             "dpush",
+            "shift_left",
+            "shift_right",
+            "extract_bits",
+            "insert_bits",
             "bits",
             "read_bits",
             "patch_bits",
@@ -553,7 +557,7 @@ def _compile_raw(
             operands = (
                 Operand("string", rest[0].value, _source_lexeme(rest[0], source_path, source_texts)),
             )
-        elif opcode in {"dpop", "arm_imm8", "arm_imm_rotate"}:
+        elif opcode == "dpop":
             if rest:
                 raise RuntimeError(f"{opcode.upper()} no acepta operandos.")
             operands = _raw_values(rest, source_path, source_texts)

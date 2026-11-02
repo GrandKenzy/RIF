@@ -18,6 +18,8 @@ RIF_META_DIRECTIVES = frozenset(
         "RIF_INSERT",
         "RIF_PATCH",
         "RIF_SECTION",
+        "RIF_INCLUDE",
+        "RIF_CHECKSUM",
     }
 )
 
@@ -30,6 +32,8 @@ RIF_META_OPERATIONS = {
     "RIF_SECTION": ("SECTION",),
     "RIF_STORE": ("STORE",),
     "RIF_STORE_CONFIG": ("ORDER", "ENDIANNESS"),
+    "RIF_INCLUDE": ("INCLUDE",),
+    "RIF_CHECKSUM": ("CRC16", "CRC32", "SUM8", "GBA_HEADER"),
 }
 
 
@@ -47,6 +51,10 @@ class RIFMetaDirective:
     bitorder: int | None = None
     index: int | None = None
     section: str | None = None
+    checksum_scope: str | None = None
+    checksum_start: int | None = None
+    checksum_end: int | None = None
+    checksum_offset: int | None = None
     payload: tuple[lexer.TokenType, ...] = ()
     line: int | None = None
 
@@ -157,6 +165,97 @@ def _directive(line: tuple[lexer.TokenType, ...]) -> RIFMetaDirective | None:
             name,
             operation="REQSTS",
             path=str(line[3].value),
+            line=line_number,
+        )
+    if name == "RIF_INCLUDE":
+        if len(line) != 4 or line[3].token != lexer.Token.STRING:
+            raise ValueError("::RIF_INCLUDE requiere la ruta de un archivo fuente.")
+        return RIFMetaDirective(
+            name,
+            operation="INCLUDE",
+            path=str(line[3].value),
+            line=line_number,
+        )
+    if name == "RIF_CHECKSUM":
+        if (
+            len(line) < 5
+            or line[3].token not in {lexer.Token.IDENT, lexer.Token.KEYWORD}
+        ):
+            raise ValueError(
+                "::RIF_CHECKSUM requiere un algoritmo, IMAGE/SECTION y WRITE."
+            )
+        algorithm = str(line[3].value).upper()
+        if algorithm not in {"CRC16", "CRC32", "SUM8", "GBA_HEADER"}:
+            raise ValueError(
+                "::RIF_CHECKSUM acepta CRC16, CRC32, SUM8 o GBA_HEADER."
+            )
+        scope = (
+            str(line[4].value).upper()
+            if line[4].token in {lexer.Token.IDENT, lexer.Token.KEYWORD}
+            else ""
+        )
+        if scope not in {"IMAGE", "SECTION"}:
+            raise ValueError("::RIF_CHECKSUM requiere IMAGE o SECTION.")
+        cursor = 5
+        section = None
+        if scope == "SECTION":
+            if cursor >= len(line) or line[cursor].token not in {
+                lexer.Token.IDENT,
+                lexer.Token.KEYWORD,
+            }:
+                raise ValueError("::RIF_CHECKSUM SECTION requiere un nombre.")
+            section = str(line[cursor].value)
+            cursor += 1
+        range_start = None
+        range_end = None
+        if (
+            cursor < len(line)
+            and line[cursor].token in {lexer.Token.IDENT, lexer.Token.KEYWORD}
+            and str(line[cursor].value).upper() == "RANGE"
+        ):
+            if (
+                cursor + 2 >= len(line)
+                or line[cursor + 1].token != lexer.Token.NUMBER
+                or line[cursor + 2].token != lexer.Token.NUMBER
+            ):
+                raise ValueError("::RIF_CHECKSUM RANGE requiere inicio y fin.")
+            range_start = int(line[cursor + 1].value)
+            range_end = int(line[cursor + 2].value)
+            cursor += 3
+        if (
+            cursor + 1 >= len(line)
+            or line[cursor].token not in {lexer.Token.IDENT, lexer.Token.KEYWORD}
+            or str(line[cursor].value).upper() != "WRITE"
+            or line[cursor + 1].token != lexer.Token.NUMBER
+            or cursor + 2 != len(line)
+        ):
+            scope_name = "IMAGE" if scope == "IMAGE" else "SECTION"
+            raise ValueError(f"::RIF_CHECKSUM {scope_name} usa WRITE offset.")
+        offset = int(line[cursor + 1].value)
+        if algorithm == "GBA_HEADER":
+            if scope != "IMAGE" or offset != 0xBD:
+                raise ValueError(
+                    "::RIF_CHECKSUM GBA_HEADER requiere IMAGE WRITE 0xBD."
+                )
+            if range_start is not None and (range_start, range_end) != (0xA0, 0xBD):
+                raise ValueError(
+                    "::RIF_CHECKSUM GBA_HEADER usa RANGE 0xA0 0xBD."
+                )
+            range_start, range_end = 0xA0, 0xBD
+        if range_start is not None and (
+            range_start < 0 or range_end is None or range_end < range_start
+        ):
+            raise ValueError("El RANGE de ::RIF_CHECKSUM no es válido.")
+        if offset < 0:
+            raise ValueError("El offset de ::RIF_CHECKSUM no puede ser negativo.")
+        return RIFMetaDirective(
+            name,
+            operation=algorithm,
+            section=section,
+            checksum_scope=scope,
+            checksum_start=range_start,
+            checksum_end=range_end,
+            checksum_offset=offset,
             line=line_number,
         )
     if name == "RIF_BUFFER":

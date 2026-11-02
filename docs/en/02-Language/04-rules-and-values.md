@@ -103,8 +103,52 @@ an extensible block:
 They are then used as `. fixup rel24 "slot"`. All relocations are validated and
 planned before any patch is committed.
 
+For a non-contiguous or scaled encoding, targets can declare a recipe in the
+`relocations` table and its output fields in `relocation_fields`. A recipe can
+declare `pc_bias`, `scale`, `alignment`, `signed`, and a fixed `template`; each
+field declares `source_shift`, `width`, and `target_shift`. This keeps split
+fields and instruction templates in target data while the core only performs
+generic arithmetic and bit placement.
+
+For example, a target can describe a 16-bit field with an 11-bit signed
+displacement without naming the encoding in RIF:
+
+```rif
+@table relocations
+| name | width | mode | pc_bias | scale | alignment | signed | template |
+__
+| short_branch | 16 | pc | 2 | 2 | 2 | true | 0xE000 |
+@end
+
+@table relocation_fields
+| relocation | source_shift | width | target_shift |
+__
+| short_branch | 0 | 11 | 0 |
+@end
+```
+
+The Rule then only refers to `. fixup short_branch "slot"`. The same recipe
+model supports several fields sourced from one scaled value.
+
 Memory forms, registers, and prefixes remain target data and Rules; RIF only
 provides the generic machinery to select, validate, and emit them.
+
+## Generic bit transformations
+
+Rules can compose scalar bit operations through the datastack:
+
+```rif
+. dpush 0xD4
+. shift_right dget 2
+. extract_bits dget 0 4
+. bits dget 4
+```
+
+`shift_left` and `shift_right` take `value, amount`; `extract_bits` takes
+`value, offset, width`; and `insert_bits` takes `base, value, offset, width`.
+Each operation validates its inputs and pushes one result. `dget` consumes the
+result when it is ready to emit. These instructions manipulate scalar fields
+only; they do not know about an ISA, instruction templates, or byte order.
 
 ## Immediate Fitting
 
